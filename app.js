@@ -13,6 +13,7 @@ let modoFormulario = 'pedido';
 let modalSaveHandler = null;
 let filtroSaldo = 'todos';
 let filtroAltasSaldo = 'todos';
+let switchViewFn = null;
 const previewUrls = new Map();
 
 function getSupabase() {
@@ -158,25 +159,45 @@ function formatFriendlyError(err, fallback = 'Ocurrió un error inesperado.') {
   return msg || fallback;
 }
 
-function showSuccessToast(message = 'Guardado') {
+function showSuccessToast(message = 'Guardado', options = {}) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
   const toast = document.createElement('div');
   toast.className = 'success-toast';
+  if (options.actionLabel) toast.classList.add('has-action');
+
   toast.innerHTML = `
-    <span class="material-symbols-outlined toast-icon">check_circle</span>
-    <span class="toast-text">${escapeHtml(message)}</span>
+    <div class="flex items-center gap-2">
+      <span class="material-symbols-outlined toast-icon">check_circle</span>
+      <span class="toast-text">${escapeHtml(message)}</span>
+    </div>
   `;
+
+  if (options.actionLabel && typeof options.onAction === 'function') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action-btn';
+    btn.textContent = options.actionLabel;
+    btn.addEventListener('click', () => {
+      options.onAction();
+      toast.classList.add('hide');
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    });
+    toast.appendChild(btn);
+  }
 
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
 
+  const duration = options.actionLabel ? 5500 : 2200;
   setTimeout(() => {
+    if (!toast.isConnected) return;
     toast.classList.add('hide');
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
-  }, 2200);
+  }, duration);
 }
 
 async function uploadToStorage(file, bucket = STORAGE_BUCKET) {
@@ -397,6 +418,18 @@ function renderDashboard() {
   `;
 }
 
+function updatePedidoFechaInfo() {
+  const textEl = document.getElementById('pedido-fecha-text');
+  if (!textEl) return;
+  const hoy = new Date();
+  const texto = hoy.toLocaleDateString('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  textEl.textContent = `Se registrará para: ${texto}`;
+}
+
 function setModoFormulario(modo) {
   modoFormulario = modo;
   const formPedido = document.getElementById('form-pedido');
@@ -414,6 +447,7 @@ function setModoFormulario(modo) {
     formPago?.classList.add('hidden');
     if (btnPedido) btnPedido.className = activeClass;
     if (btnPago) btnPago.className = inactiveClass;
+    updatePedidoFechaInfo();
   } else {
     formPedido?.classList.add('hidden');
     formPago?.classList.remove('hidden');
@@ -426,10 +460,78 @@ function setModoFormulario(modo) {
 // ============================================
 // Autocompletado de clientes
 // ============================================
+function removeAccents(str) {
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeClienteKey(name) {
+  return removeAccents(name.trim().toLowerCase()).replace(/\s+/g, ' ');
+}
+
+function normalizeClienteNombre(name) {
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
 function getUniqueClientes() {
   return [...new Set(movimientosData.map((m) => m.cliente.trim()).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, 'es')
   );
+}
+
+function getCanonicalClienteNombre(nombre) {
+  const key = normalizeClienteKey(nombre);
+  if (!key) return normalizeClienteNombre(nombre);
+  const match = getUniqueClientes().find((c) => normalizeClienteKey(c) === key);
+  return match || normalizeClienteNombre(nombre);
+}
+
+function findSimilarClientes(nombre, maxResults = 3) {
+  const key = normalizeClienteKey(nombre);
+  if (!key || key.length < 2) return [];
+
+  return getUniqueClientes()
+    .filter((c) => {
+      const ck = normalizeClienteKey(c);
+      if (ck === key) return false;
+      return ck.includes(key) || key.includes(ck);
+    })
+    .slice(0, maxResults);
+}
+
+async function resolveClienteNombre(rawNombre, inputId) {
+  const normalized = normalizeClienteNombre(rawNombre);
+  const canonical = getCanonicalClienteNombre(normalized);
+
+  if (findClienteGroup(canonical)) {
+    return canonical;
+  }
+
+  const similares = findSimilarClientes(normalized);
+  if (similares.length === 0) {
+    return canonical;
+  }
+
+  const lista = similares.map((s) => `• ${s}`).join('\n');
+  const usarExistente = confirm(
+    `No encontramos "${canonical}" exactamente.\n\n¿Quiso decir uno de estos clientes?\n${lista}\n\nAceptar = usar "${similares[0]}"\nCancelar = crear "${canonical}" como cliente nuevo`
+  );
+
+  if (usarExistente) {
+    const resolved = similares[0];
+    const input = document.getElementById(inputId);
+    if (input) input.value = resolved;
+    return resolved;
+  }
+
+  return canonical;
 }
 
 function refreshClienteDatalist() {
@@ -441,11 +543,9 @@ function refreshClienteDatalist() {
 }
 
 function findClienteGroup(nombre) {
-  const trimmed = nombre.trim();
-  if (!trimmed) return null;
-  return groupByCliente(movimientosData).find(
-    (g) => g.cliente.toLowerCase() === trimmed.toLowerCase()
-  );
+  const key = normalizeClienteKey(nombre);
+  if (!key) return null;
+  return groupByCliente(movimientosData).find((g) => normalizeClienteKey(g.cliente) === key);
 }
 
 function getClienteSaldo(nombre) {
@@ -458,37 +558,87 @@ function getClienteSaldo(nombre) {
   };
 }
 
-function updateClienteSaldoHint(inputId, hintId) {
+function renderSugerenciasClientes(inputId, sugerenciasId, similares) {
+  const container = document.getElementById(sugerenciasId);
+  if (!container) return;
+
+  if (!similares.length) {
+    container.className = 'hidden';
+    container.innerHTML = '';
+    return;
+  }
+
+  container.className = 'flex flex-wrap';
+  container.innerHTML = similares
+    .map(
+      (nombre) => `
+        <button type="button" class="chip-sugerencia-cliente" data-input-id="${inputId}" data-nombre="${escapeHtml(nombre)}">
+          ${escapeHtml(nombre)}
+        </button>
+      `
+    )
+    .join('');
+}
+
+function updateClienteSaldoHint(inputId, hintId, sugerenciasId) {
   const input = document.getElementById(inputId);
   const hint = document.getElementById(hintId);
   if (!input || !hint) return;
 
   const saldo = getClienteSaldo(input.value);
-  if (!saldo) {
-    hint.classList.add('hidden');
-    hint.textContent = '';
+  if (saldo) {
+    hint.classList.remove('hidden');
+    renderSugerenciasClientes(inputId, sugerenciasId, []);
+    if (saldo.debe > 0) {
+      hint.className = 'font-label-md text-label-md mt-xs text-error';
+      hint.textContent = `Cliente existente — Debe: ${formatMoney(saldo.debe)}`;
+    } else if (saldo.debe < 0) {
+      hint.className = 'font-label-md text-label-md mt-xs text-green-700';
+      hint.textContent = `Cliente existente — Saldo a favor: ${formatMoney(Math.abs(saldo.debe))}`;
+    } else {
+      hint.className = 'font-label-md text-label-md mt-xs text-outline';
+      hint.textContent = 'Cliente existente — Al corriente';
+    }
     return;
   }
 
-  hint.classList.remove('hidden');
-  if (saldo.debe > 0) {
-    hint.className = 'font-label-md text-label-md mt-xs text-error';
-    hint.textContent = `Cliente existente — Debe: ${formatMoney(saldo.debe)}`;
-  } else if (saldo.debe < 0) {
-    hint.className = 'font-label-md text-label-md mt-xs text-green-700';
-    hint.textContent = `Cliente existente — Saldo a favor: ${formatMoney(Math.abs(saldo.debe))}`;
-  } else {
-    hint.className = 'font-label-md text-label-md mt-xs text-outline';
-    hint.textContent = 'Cliente existente — Al corriente';
+  const similares = findSimilarClientes(input.value);
+  if (similares.length) {
+    hint.classList.remove('hidden');
+    hint.className = 'font-label-md text-label-md mt-xs';
+    hint.style.color = '#92400E';
+    hint.textContent = '¿Quiso decir uno de estos clientes?';
+    renderSugerenciasClientes(inputId, sugerenciasId, similares);
+    return;
   }
+
+  hint.classList.add('hidden');
+  hint.textContent = '';
+  renderSugerenciasClientes(inputId, sugerenciasId, []);
 }
 
 function setupClienteAutocomplete() {
-  ['pedido-cliente', 'pago-cliente'].forEach((inputId) => {
-    const hintId = inputId === 'pedido-cliente' ? 'hint-pedido-cliente' : 'hint-pago-cliente';
+  const pairs = [
+    ['pedido-cliente', 'hint-pedido-cliente', 'sugerencias-pedido-cliente'],
+    ['pago-cliente', 'hint-pago-cliente', 'sugerencias-pago-cliente'],
+  ];
+
+  pairs.forEach(([inputId, hintId, sugerenciasId]) => {
     const input = document.getElementById(inputId);
-    input?.addEventListener('input', () => updateClienteSaldoHint(inputId, hintId));
-    input?.addEventListener('change', () => updateClienteSaldoHint(inputId, hintId));
+    const refresh = () => updateClienteSaldoHint(inputId, hintId, sugerenciasId);
+    input?.addEventListener('input', refresh);
+    input?.addEventListener('change', refresh);
+  });
+
+  document.addEventListener('click', (event) => {
+    const chip = event.target.closest('.chip-sugerencia-cliente');
+    if (!chip) return;
+
+    const input = document.getElementById(chip.dataset.inputId);
+    if (input) {
+      input.value = chip.dataset.nombre;
+      input.dispatchEvent(new Event('change'));
+    }
   });
 }
 
@@ -640,7 +790,9 @@ async function saveEditMovimiento(id) {
   const mov = movimientosData.find((m) => m.id === id);
   if (!mov) return;
 
-  const cliente = document.getElementById('edit-mov-cliente')?.value.trim();
+  const cliente = getCanonicalClienteNombre(
+    document.getElementById('edit-mov-cliente')?.value.trim() || ''
+  );
   const monto = parseFloat(document.getElementById('edit-mov-monto')?.value);
   const descripcion = document.getElementById('edit-mov-descripcion')?.value.trim();
 
@@ -744,7 +896,7 @@ async function saveEditAsociado(id) {
   const asociado = asociadosData.find((a) => a.id === id);
   if (!asociado) return;
 
-  const nombre = document.getElementById('edit-asoc-nombre')?.value.trim();
+  const nombre = normalizeClienteNombre(document.getElementById('edit-asoc-nombre')?.value.trim() || '');
   const telefono = document.getElementById('edit-asoc-telefono')?.value.trim();
   const correo = document.getElementById('edit-asoc-correo')?.value.trim();
   const recomendador = document.getElementById('edit-asoc-recomendador')?.value.trim();
@@ -777,19 +929,83 @@ async function saveEditAsociado(id) {
   showSuccessToast('Actualizado');
 }
 
+async function confirmDeleteDouble(titulo, detalle) {
+  if (!confirm(`${titulo}\n\n${detalle}`)) return false;
+  if (!confirm('Confirma de nuevo: sí, eliminar permanentemente.')) return false;
+  return true;
+}
+
+async function deleteMovimiento(id) {
+  const mov = movimientosData.find((m) => m.id === id);
+  if (!mov) return;
+
+  const tipo = mov.tipo === 'pedido' ? 'pedido' : 'pago';
+  const ok = await confirmDeleteDouble(
+    `Eliminar ${tipo}`,
+    `${mov.cliente} — ${formatMoney(mov.monto)}\n${formatFecha(getMovimientoFecha(mov))}`
+  );
+  if (!ok) return;
+
+  const { error } = await getSupabase().from('movimientos').delete().eq('id', id);
+  if (error) throw error;
+
+  await fetchMovimientos();
+  showSuccessToast('Registro eliminado');
+}
+
+async function deleteAsociado(id) {
+  const asociado = asociadosData.find((a) => a.id === id);
+  if (!asociado) return;
+
+  const ok = await confirmDeleteDouble(
+    'Eliminar asociado',
+    `${asociado.nombre_nuevo}\n${formatFecha(asociado.created_at)}`
+  );
+  if (!ok) return;
+
+  const { error } = await getSupabase().from('asociados').delete().eq('id', id);
+  if (error) throw error;
+
+  await fetchAsociados();
+  showSuccessToast('Asociado eliminado');
+}
+
 function setupEditDelegation(containerId, type) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  container.addEventListener('click', (event) => {
+  container.addEventListener('click', async (event) => {
     const btnMov = event.target.closest('.btn-editar-movimiento');
     if (btnMov) {
       openEditMovimiento(Number(btnMov.dataset.id));
       return;
     }
+
+    const btnDelMov = event.target.closest('.btn-eliminar-movimiento');
+    if (btnDelMov) {
+      try {
+        await deleteMovimiento(Number(btnDelMov.dataset.id));
+      } catch (err) {
+        console.error(err);
+        alert(formatFriendlyError(err, 'Error al eliminar.'));
+      }
+      return;
+    }
+
     const btnAsoc = event.target.closest('.btn-editar-asociado');
     if (btnAsoc) {
       openEditAsociado(Number(btnAsoc.dataset.id));
+      return;
+    }
+
+    const btnDelAsoc = event.target.closest('.btn-eliminar-asociado');
+    if (btnDelAsoc) {
+      try {
+        await deleteAsociado(Number(btnDelAsoc.dataset.id));
+      } catch (err) {
+        console.error(err);
+        alert(formatFriendlyError(err, 'Error al eliminar.'));
+      }
     }
   });
 }
@@ -860,6 +1076,8 @@ function initNavigation() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  switchViewFn = switchView;
+
   drawerItems.forEach((item) => item.addEventListener('click', () => switchView(item.dataset.target)));
   bottomNavItems.forEach((item) => item.addEventListener('click', () => switchView(item.dataset.target)));
 }
@@ -892,7 +1110,7 @@ function groupByCliente(movimientos) {
   const groups = new Map();
 
   movimientos.forEach((mov) => {
-    const key = mov.cliente.trim();
+    const key = getCanonicalClienteNombre(mov.cliente.trim());
     if (!groups.has(key)) {
       groups.set(key, {
         cliente: key,
@@ -967,10 +1185,15 @@ function renderMovimientoItem(mov) {
             ${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}
           </p>
         </div>
-        <button type="button" class="btn-editar btn-editar-movimiento" data-id="${mov.id}">
-          <span class="material-symbols-outlined text-[14px]" data-icon="edit">edit</span>
-          Editar
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          <button type="button" class="btn-editar btn-editar-movimiento" data-id="${mov.id}">
+            <span class="material-symbols-outlined text-[14px]" data-icon="edit">edit</span>
+            Editar
+          </button>
+          <button type="button" class="btn-eliminar btn-eliminar-movimiento" data-id="${mov.id}" title="Eliminar">
+            <span class="material-symbols-outlined text-[14px]">delete</span>
+          </button>
+        </div>
       </div>
       ${fotosHtml}
     </div>
@@ -1068,12 +1291,12 @@ async function handlePedidoSubmit(event) {
   event.preventDefault();
 
   const btn = document.getElementById('btn-guardar-pedido');
-  const cliente = document.getElementById('pedido-cliente')?.value.trim();
+  const rawCliente = document.getElementById('pedido-cliente')?.value.trim();
   const monto = parseFloat(document.getElementById('pedido-monto')?.value);
   const descripcion = document.getElementById('pedido-descripcion')?.value.trim();
   const fotosInput = document.getElementById('input-fotos-pedido');
 
-  if (!cliente) {
+  if (!rawCliente) {
     alert('El nombre del cliente es obligatorio.');
     return;
   }
@@ -1082,6 +1305,9 @@ async function handlePedidoSubmit(event) {
     alert('Ingrese un monto válido.');
     return;
   }
+
+  const cliente = await resolveClienteNombre(rawCliente, 'pedido-cliente');
+  if (!cliente) return;
 
   if (btn) setButtonLoading(btn, true);
 
@@ -1110,9 +1336,13 @@ async function handlePedidoSubmit(event) {
     document.getElementById('form-pedido')?.reset();
     if (fotosInput) fotosInput.value = '';
     clearFilePreview('preview-pedido', 'dropzone-pedido', 'Seleccionar Imágenes', true);
+    updatePedidoFechaInfo();
 
     await fetchMovimientos();
-    showSuccessToast('Pedido guardado — visible en Pedidos Semanales');
+    showSuccessToast('Pedido guardado', {
+      actionLabel: 'Ver en Pedidos',
+      onAction: () => switchViewFn?.('vista-pedidos'),
+    });
   } catch (err) {
     console.error(err);
     alert(formatFriendlyError(err, 'Error al guardar el pedido.'));
@@ -1125,14 +1355,14 @@ async function handlePagoSubmit(event) {
   event.preventDefault();
 
   const btn = document.getElementById('btn-guardar-pago');
-  const cliente = document.getElementById('pago-cliente')?.value.trim();
+  const rawCliente = document.getElementById('pago-cliente')?.value.trim();
   const monto = parseFloat(document.getElementById('pago-monto')?.value);
   const descripcion = document.getElementById('pago-descripcion')?.value.trim();
   const fecha = document.getElementById('pago-fecha')?.value;
   const hora = document.getElementById('pago-hora')?.value;
   const fotoInput = document.getElementById('input-foto-pago');
 
-  if (!cliente) {
+  if (!rawCliente) {
     alert('El nombre del cliente es obligatorio.');
     return;
   }
@@ -1141,6 +1371,9 @@ async function handlePagoSubmit(event) {
     alert('Ingrese un monto válido.');
     return;
   }
+
+  const cliente = await resolveClienteNombre(rawCliente, 'pago-cliente');
+  if (!cliente) return;
 
   if (btn) setButtonLoading(btn, true);
 
@@ -1254,6 +1487,9 @@ function renderAsociados() {
                 <span class="material-symbols-outlined text-[14px]" data-icon="edit">edit</span>
                 Editar
               </button>
+              <button type="button" class="btn-eliminar btn-eliminar-asociado" data-id="${asociado.id}" title="Eliminar">
+                <span class="material-symbols-outlined text-[14px]">delete</span>
+              </button>
             </div>
           </div>
           ${
@@ -1298,7 +1534,7 @@ async function handleAltasSubmit(event) {
   event.preventDefault();
 
   const btn = document.getElementById('btn-guardar-asociado');
-  const nombre = document.getElementById('altas-nombre')?.value.trim();
+  const nombre = normalizeClienteNombre(document.getElementById('altas-nombre')?.value.trim() || '');
   const telefono = document.getElementById('altas-telefono')?.value.trim();
   const correo = document.getElementById('altas-correo')?.value.trim();
   const recomendador = document.getElementById('altas-recomendador')?.value.trim();
@@ -1461,6 +1697,56 @@ function getFilteredPedidosSemanales() {
   return groupByCliente(weekPedidos);
 }
 
+function buildResumenSemanalText(groups) {
+  const allGroups = groupByCliente(movimientosData);
+  const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
+
+  const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
+  let porCobrar = 0;
+  groups.forEach((g) => {
+    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+    if (debe > 0) porCobrar += debe;
+  });
+
+  const numPedidos = groups.reduce(
+    (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
+    0
+  );
+
+  let text = `*Pedidos Betterorden*\n${getCurrentWeekLabel()}\n${getNextResetLabel()}\n\n`;
+  text += `Total semana: ${formatMoney(totalMonto)}\n`;
+  text += `Por cobrar (deudores): ${formatMoney(porCobrar)}\n`;
+  text += `Clientes: ${groups.length} | Pedidos: ${numPedidos}\n\n`;
+
+  groups
+    .slice()
+    .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
+    .forEach((g) => {
+      const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+      const debeTxt = debe > 0 ? ` (debe ${formatMoney(debe)})` : '';
+      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)}${debeTxt}\n`;
+    });
+
+  return text.trim();
+}
+
+function shareResumenSemanal() {
+  const currentWeek = getWeekRange();
+  const groups = groupByCliente(
+    movimientosData.filter(
+      (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek)
+    )
+  );
+
+  if (!groups.length) {
+    alert('No hay pedidos esta semana para compartir.');
+    return;
+  }
+
+  const text = buildResumenSemanalText(groups);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
 function renderResumenSemanal(groups) {
   const container = document.getElementById('resumen-semanal');
   if (!container) return;
@@ -1471,19 +1757,31 @@ function renderResumenSemanal(groups) {
     return;
   }
 
+  const allGroups = groupByCliente(movimientosData);
+  const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
+
   const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
   const numClientes = groups.length;
   const numPedidos = groups.reduce(
     (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
     0
   );
+  let porCobrar = 0;
+  groups.forEach((g) => {
+    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+    if (debe > 0) porCobrar += debe;
+  });
 
   container.classList.remove('hidden');
   container.innerHTML = `
-    <div class="grid grid-cols-3 gap-3 mb-4">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
       <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-left: 4px solid #D97706;">
         <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #92400E;">Total semana</p>
         <p class="text-lg font-bold" style="color: #92400E;">${formatMoney(totalMonto)}</p>
+      </div>
+      <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 4px solid #DC2626;">
+        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Por cobrar</p>
+        <p class="text-lg font-bold" style="color: #991B1B;">${formatMoney(porCobrar)}</p>
       </div>
       <div class="rounded-xl p-3 text-center" style="background: #FFFBF5; border-left: 4px solid #EA580C;">
         <p class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Clientes</p>
@@ -1494,6 +1792,10 @@ function renderResumenSemanal(groups) {
         <p class="text-lg font-bold text-on-surface">${numPedidos}</p>
       </div>
     </div>
+    <button type="button" id="btn-compartir-semana" class="w-full h-11 mb-4 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
+      <span class="material-symbols-outlined text-[20px]">share</span>
+      Compartir resumen por WhatsApp
+    </button>
   `;
 }
 
@@ -1717,6 +2019,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('form-altas')?.addEventListener('submit', handleAltasSubmit);
 
   document.getElementById('filtro-semanal-nombre')?.addEventListener('input', renderPedidosSemanales);
+
+  document.getElementById('resumen-semanal')?.addEventListener('click', (event) => {
+    if (event.target.closest('#btn-compartir-semana')) shareResumenSemanal();
+  });
+
+  updatePedidoFechaInfo();
 
   try {
     getSupabase();
