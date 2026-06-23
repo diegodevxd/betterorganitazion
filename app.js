@@ -1970,10 +1970,38 @@ function renderHistorialSemanas() {
 }
 
 // ============================================
+// PWA — instalación en iPhone
+// ============================================
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandaloneApp() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function initPwaInstallHint() {
+  const banner = document.getElementById('ios-install-banner');
+  const dismiss = document.getElementById('ios-install-dismiss');
+  if (!banner || !isIosDevice() || isStandaloneApp()) return;
+  if (localStorage.getItem('betterorden-ios-install-dismissed') === '1') return;
+
+  banner.classList.remove('hidden');
+  dismiss?.addEventListener('click', () => {
+    banner.classList.add('hidden');
+    localStorage.setItem('betterorden-ios-install-dismissed', '1');
+  });
+}
+
+// ============================================
 // Inicialización
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
+  initPwaInstallHint();
 
   document.getElementById('btn-modo-pedido')?.addEventListener('click', () => setModoFormulario('pedido'));
   document.getElementById('btn-modo-pago')?.addEventListener('click', () => setModoFormulario('pago'));
