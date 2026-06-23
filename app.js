@@ -1752,7 +1752,7 @@ function buildResumenSemanalText(groups) {
     0
   );
 
-  let text = `*Pedidos Betterorden*\n${getCurrentWeekLabel()}\n${getNextResetLabel()}\n\n`;
+  let text = `*Pedidos BetterMancera*\n${getCurrentWeekLabel()}\n${getNextResetLabel()}\n\n`;
   text += `Total semana: ${formatMoney(totalMonto)}\n`;
   text += `Por cobrar (deudores): ${formatMoney(porCobrar)}\n`;
   text += `Clientes: ${groups.length} | Pedidos: ${numPedidos}\n\n`;
@@ -2026,12 +2026,12 @@ function initPwaInstallHint() {
   const banner = document.getElementById('ios-install-banner');
   const dismiss = document.getElementById('ios-install-dismiss');
   if (!banner || !isIosDevice() || isStandaloneApp()) return;
-  if (localStorage.getItem('betterorden-ios-install-dismissed') === '1') return;
+  if (localStorage.getItem('bettermancera-ios-install-dismissed') === '1') return;
 
   banner.classList.remove('hidden');
   dismiss?.addEventListener('click', () => {
     banner.classList.add('hidden');
-    localStorage.setItem('betterorden-ios-install-dismissed', '1');
+    localStorage.setItem('bettermancera-ios-install-dismissed', '1');
   });
 }
 

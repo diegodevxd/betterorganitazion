@@ -1,6 +1,6 @@
 {
-  "name": "Betterorden",
-  "short_name": "Betterorden",
+  "name": "BetterMancera",
+  "short_name": "BetterMancera",
   "description": "Pedidos, pagos y socios Betterware",
   "start_url": "./",
   "scope": "./",
