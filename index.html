@@ -1,0 +1,579 @@
+<!DOCTYPE html><html class="light" lang="es" style=""><head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
+    <title>Betterorden</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+            tailwind.config = {
+                darkMode: "class",
+                theme: {
+                    extend: {
+                        "colors": {
+                            "background": "#FFFBF5",
+                            "on-primary": "#ffffff",
+                            "on-secondary-fixed": "#022C22",
+                            "on-tertiary-fixed-variant": "#7C2D12",
+                            "on-error": "#ffffff",
+                            "outline": "#78716C",
+                            "surface-tint": "#D97706",
+                            "inverse-primary": "#FCD34D",
+                            "secondary-fixed": "#D1FAE5",
+                            "on-tertiary": "#ffffff",
+                            "primary": "#D97706",
+                            "primary-container": "#FEF3C7",
+                            "on-secondary": "#ffffff",
+                            "secondary-fixed-dim": "#A7F3D0",
+                            "on-primary-fixed": "#422006",
+                            "inverse-surface": "#292524",
+                            "on-background": "#1C1917",
+                            "tertiary-fixed": "#FFEDD5",
+                            "error": "#DC2626",
+                            "surface-container-high": "#F5E6D0",
+                            "error-container": "#FEE2E2",
+                            "surface-container-lowest": "#ffffff",
+                            "surface-bright": "#FFFBF5",
+                            "surface-container-low": "#FFF8EE",
+                            "on-secondary-fixed-variant": "#065F46",
+                            "surface": "#FFFBF5",
+                            "tertiary-container": "#FED7AA",
+                            "on-error-container": "#991B1B",
+                            "on-surface-variant": "#57534E",
+                            "primary-fixed-dim": "#FBBF24",
+                            "on-tertiary-container": "#ffffff",
+                            "outline-variant": "#E7E0D8",
+                            "surface-variant": "#F5E6D0",
+                            "on-surface": "#1C1917",
+                            "on-secondary-container": "#065F46",
+                            "surface-dim": "#E7E5E4",
+                            "tertiary-fixed-dim": "#FB923C",
+                            "secondary-container": "#D1FAE5",
+                            "on-primary-container": "#78350F",
+                            "primary-fixed": "#FDE68A",
+                            "secondary": "#059669",
+                            "surface-container": "#FFF1E0",
+                            "tertiary": "#EA580C",
+                            "on-primary-fixed-variant": "#92400E",
+                            "inverse-on-surface": "#F5F5F4",
+                            "surface-container-highest": "#E7E0D8",
+                            "on-tertiary-fixed": "#431407"
+                        },
+                        "borderRadius": {
+                            "DEFAULT": "0.25rem",
+                            "lg": "0.5rem",
+                            "xl": "0.75rem",
+                            "full": "9999px"
+                        },
+                        "spacing": {
+                            "margin-desktop": "48px",
+                            "xs": "4px",
+                            "margin-mobile": "16px",
+                            "lg": "24px",
+                            "sm": "8px",
+                            "base": "4px",
+                            "xl": "32px",
+                            "md": "16px",
+                            "gutter": "16px"
+                        },
+                        "fontFamily": {
+                            "headline-lg-mobile": ["Hanken Grotesk"],
+                            "headline-lg": ["Hanken Grotesk"],
+                            "headline-md": ["Hanken Grotesk"],
+                            "button": ["Hanken Grotesk"],
+                            "body-lg": ["Hanken Grotesk"],
+                            "label-md": ["Hanken Grotesk"],
+                            "body-md": ["Hanken Grotesk"]
+                        },
+                        "fontSize": {
+                            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
+                            "headline-lg": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                            "headline-md": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                            "button": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+                            "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                            "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                            "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                        }
+                    }
+                }
+            }
+        </script>
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+    <style>
+            body {
+                -webkit-tap-highlight-color: transparent;
+                background: #FFFBF5;
+            }
+            .view-section {
+                display: none;
+                animation: fadeIn 0.3s ease-in-out;
+            }
+            .view-section.active {
+                display: block;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            /* Form Input Focus — Warm Amber */
+            .form-input {
+                border: 1.5px solid #E7E0D8;
+                transition: all 0.2s ease;
+            }
+            .form-input:focus {
+                box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
+                border-color: #D97706;
+                outline: none;
+            }
+            /* Drawer */
+            #drawer-overlay.hidden {
+                display: none !important;
+                pointer-events: none;
+            }
+            #nav-drawer {
+                transform: translateX(-100%);
+            }
+            #nav-drawer.drawer-open {
+                transform: translateX(0);
+            }
+            /* Photo Previews */
+            .preview-grid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 8px;
+            }
+            .preview-thumb {
+                width: 80px;
+                height: 80px;
+                object-fit: cover;
+                border-radius: 12px;
+                border: 2px solid #E7E0D8;
+            }
+            /* Toast */
+            #toast-container {
+                position: fixed;
+                top: 5rem;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 100;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 8px;
+                pointer-events: none;
+            }
+            .success-toast {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 20px;
+                border-radius: 9999px;
+                background: linear-gradient(135deg, #FFFBF5, #FEF3C7);
+                border: 1px solid #FDE68A;
+                box-shadow: 0 4px 16px rgba(217, 119, 6, 0.15);
+                opacity: 0;
+                transform: translateY(-12px) scale(0.95);
+                transition: opacity 0.3s ease, transform 0.3s ease;
+            }
+            .success-toast.show {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            .success-toast.hide {
+                opacity: 0;
+                transform: translateY(-8px) scale(0.95);
+            }
+            .success-toast .toast-icon {
+                color: #D97706;
+                font-size: 24px;
+                line-height: 1;
+            }
+            .success-toast .toast-text {
+                color: #92400E;
+                font-weight: 600;
+                font-size: 14px;
+            }
+            /* Modal — Bottom Sheet */
+            #modal-editar {
+                z-index: 80;
+                opacity: 1;
+                transition: opacity 0.3s ease;
+            }
+            #modal-editar.hidden {
+                opacity: 0;
+                pointer-events: none;
+            }
+            .modal-panel {
+                max-height: calc(100vh - 4rem);
+                overflow-y: auto;
+                border-radius: 20px 20px 0 0;
+                transform: translateY(0);
+                transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+            }
+            #modal-editar.hidden .modal-panel {
+                transform: translateY(100%);
+            }
+            @media (min-width: 640px) {
+                .modal-panel {
+                    border-radius: 20px;
+                    transform: translateY(0) scale(1);
+                    transition: transform 0.25s ease, opacity 0.25s ease;
+                }
+                #modal-editar.hidden .modal-panel {
+                    transform: translateY(0) scale(0.95);
+                }
+            }
+            /* Edit Button — Warm */
+            .btn-editar {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 4px 12px;
+                border-radius: 9999px;
+                background: transparent;
+                color: #D97706;
+                border: 1.5px solid rgba(217, 119, 6, 0.25);
+                font-size: 13px;
+                font-weight: 600;
+                flex-shrink: 0;
+                transition: all 0.2s ease;
+            }
+            .btn-editar:active {
+                background: #FEF3C7;
+                transform: scale(0.95);
+            }
+            /* Chips filtro — Warm */
+            .chip-filtro {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 8px 16px;
+                border-radius: 9999px;
+                font-size: 13px;
+                font-weight: 600;
+                border: 1.5px solid #E7E0D8;
+                background: #ffffff;
+                color: #57534E;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                user-select: none;
+                -webkit-user-select: none;
+                white-space: nowrap;
+            }
+            .chip-filtro:active {
+                transform: scale(0.96);
+            }
+            .chip-filtro.active {
+                background: #FEF3C7;
+                color: #92400E;
+                border-color: #D97706;
+            }
+            .chip-filtro .chip-count {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 20px;
+                height: 20px;
+                padding: 0 6px;
+                border-radius: 9999px;
+                font-size: 11px;
+                font-weight: 700;
+                background: rgba(0,0,0,0.06);
+                color: inherit;
+            }
+            .chip-filtro.active .chip-count {
+                background: rgba(146,64,14,0.12);
+            }
+            /* Dropzones — Warm Gradient */
+            .dropzone {
+                border: 2px dashed #D4A574;
+                background: linear-gradient(135deg, #FFFBF5, #FEF3C7);
+                border-radius: 16px;
+                transition: all 0.2s ease;
+            }
+            .dropzone:active {
+                transform: scale(0.98);
+                border-color: #D97706;
+                background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+            }
+            /* Gradient Buttons */
+            .btn-gradient {
+                background: linear-gradient(135deg, #D97706, #EA580C);
+                box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+            }
+            .btn-gradient:active {
+                transform: scale(0.98);
+            }
+        </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.1/dist/browser-image-compression.js"></script>
+    </head>
+    <body class="bg-background text-on-surface font-body-md min-h-screen pb-24 md:pb-0 overflow-x-hidden">
+    <!-- TopAppBar -->
+    <header class="fixed top-0 w-full z-50 h-16 px-margin-mobile flex items-center justify-between" style="background: linear-gradient(135deg, #D97706, #EA580C); box-shadow: 0 2px 12px rgba(217,119,6,0.3);">
+    <div class="flex items-center gap-md">
+    <button type="button" class="p-2 -ml-2 rounded-full hover:bg-white/20 transition-colors active:scale-95 text-white/90" id="btn-menu">
+    <span class="material-symbols-outlined" data-icon="menu">menu</span>
+    </button>
+    <h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-white tracking-tight">Betterorden</h1>
+    </div>
+    </header>
+    <!-- Navigation Drawer (Overlay) -->
+    <div class="fixed inset-0 bg-black/50 z-[60] hidden transition-opacity duration-300 opacity-0" id="drawer-overlay"></div>
+    <nav class="fixed top-0 left-0 h-full w-72 rounded-r-2xl shadow-2xl z-[70] transform -translate-x-full transition-transform duration-300 flex flex-col p-md" style="background: #FFFBF5;" id="nav-drawer">
+    <div class="flex items-center justify-between mb-lg pt-sm px-sm">
+    <h2 class="font-headline-md text-headline-md" style="color: #92400E;">Menu Principal</h2>
+    <button type="button" class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant" id="btn-close-menu">
+    <span class="material-symbols-outlined" data-icon="close">close</span>
+    </button>
+    </div>
+    <div class="flex flex-col gap-sm">
+    <button type="button" class="nav-drawer-item flex items-center gap-md rounded-2xl px-md py-sm font-body-lg text-body-lg transition-all active:opacity-80" style="background: #FEF3C7; color: #92400E;" data-target="vista-clientes">
+    <span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
+                    Clientes
+                </button>
+    <button type="button" class="nav-drawer-item flex items-center gap-md text-on-surface-variant px-md py-sm font-body-lg text-body-lg hover:bg-surface-container-high transition-all rounded-2xl active:opacity-80" data-target="vista-pedidos">
+    <span class="material-symbols-outlined" data-icon="shopping_cart">shopping_cart</span>
+                    Pedidos Semanales
+                </button>
+    <button type="button" class="nav-drawer-item flex items-center gap-md text-on-surface-variant px-md py-sm font-body-lg text-body-lg hover:bg-surface-container-high transition-all rounded-2xl active:opacity-80" data-target="vista-altas">
+    <span class="material-symbols-outlined" data-icon="person_add">person_add</span>
+                    Nuevos Asociados
+                </button>
+    </div>
+    </nav>
+    <!-- Main Content Canvas -->
+    <main class="pt-20 px-margin-mobile md:px-margin-desktop max-w-3xl mx-auto w-full">
+    <!-- VIEW 1: CLIENTES -->
+    <section class="view-section active" id="vista-clientes">
+    <div class="rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-lg mb-lg border border-outline-variant/20" style="background: #ffffff;">
+    <div class="flex items-center gap-sm mb-md">
+    <span class="material-symbols-outlined" style="color: #D97706;" data-icon="account_balance">account_balance</span>
+    <h2 class="font-headline-md text-headline-md text-on-surface">Cuenta de Cliente</h2>
+    </div>
+    <div class="flex gap-sm mb-md">
+    <button type="button" class="flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all btn-gradient text-white" id="btn-modo-pedido">
+    <span class="material-symbols-outlined text-[20px]">shopping_cart</span>
+                    Registrar pedido
+                </button>
+    <button type="button" class="flex-1 h-11 rounded-full font-button text-button bg-surface-container-high text-on-surface-variant flex items-center justify-center gap-sm transition-all hover:bg-surface-container" id="btn-modo-pago">
+    <span class="material-symbols-outlined text-[20px]">payments</span>
+                    Registrar pago
+                </button>
+    </div>
+    <!-- Formulario Pedido -->
+    <form class="space-y-4" id="form-pedido">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Cliente</label>
+    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-cliente" list="lista-clientes" placeholder="Ej. Juan Pérez" required type="text">
+    <p class="font-label-md text-label-md mt-xs hidden" id="hint-pedido-cliente"></p>
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Monto ($)</label>
+    <div class="relative">
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
+    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pedido-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
+    </div>
+    </div>
+    <div class="sm:col-span-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Descripcion (opcional)</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-descripcion" placeholder="Que pidio el cliente" type="text">
+    </div>
+    </div>
+    <div class="mt-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Fotos del Pedido</label>
+    <input accept="image/*" class="hidden" id="input-fotos-pedido" multiple type="file">
+    <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Seleccionar Imagenes" id="dropzone-pedido">
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;">photo_library</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Seleccionar Imagenes</span>
+    </div>
+    <div class="preview-grid hidden" id="preview-pedido"></div>
+    </div>
+    <button class="w-full mt-4 h-12 btn-gradient text-white rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" id="btn-guardar-pedido" type="submit">
+    <span class="material-symbols-outlined">save</span>
+                            Guardar Pedido
+                        </button>
+    </form>
+    <!-- Formulario Pago -->
+    <form class="space-y-4 hidden" id="form-pago">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Cliente</label>
+    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-cliente" list="lista-clientes" placeholder="Ej. Juan Perez" required type="text">
+    <p class="font-label-md text-label-md mt-xs hidden" id="hint-pago-cliente"></p>
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Monto ($)</label>
+    <div class="relative">
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
+    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
+    </div>
+    </div>
+    <div class="sm:col-span-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Descripcion (opcional)</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-descripcion" placeholder="Detalles del pago" type="text">
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Fecha</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-fecha" type="date">
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Hora</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-hora" type="time">
+    </div>
+    </div>
+    <div class="mt-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Comprobante (Foto)</label>
+    <input accept="image/*" class="hidden" id="input-foto-pago" type="file">
+    <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Comprobante" id="dropzone-pago">
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;">add_a_photo</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Subir Comprobante</span>
+    </div>
+    <div class="preview-grid hidden" id="preview-pago"></div>
+    </div>
+    <button class="w-full mt-4 h-12 btn-gradient text-white rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" id="btn-guardar-pago" type="submit">
+    <span class="material-symbols-outlined">save</span>
+                            Guardar Pago
+                        </button>
+    </form>
+    </div>
+    <div class="mb-xl">
+    <div class="grid grid-cols-3 gap-3 mb-4" id="dashboard-clientes"></div>
+    <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
+      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      Cuentas de Clientes
+    </h3>
+    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-clientes">
+        <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-todos">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-deudores">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="al-dia">Al dia <span class="chip-count" id="count-al-dia">0</span></button>
+    </div>
+    <div class="rounded-xl p-3 mb-3 border border-outline-variant/20 grid grid-cols-1 sm:grid-cols-3 gap-2" style="background: #fff;">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-clientes-nombre" placeholder="Buscar por nombre..." type="search">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all" id="filtro-clientes-fecha" type="date">
+    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[13px] hover:bg-surface-container-high transition-colors" id="filtro-clientes-limpiar">Limpiar filtros</button>
+    </div>
+    <div class="grid grid-cols-1 gap-3" id="historial-clientes"></div>
+    </div>
+    </section>
+    <!-- VIEW 2: PEDIDOS SEMANALES -->
+    <section class="view-section" id="vista-pedidos">
+    <div class="mb-4 px-3 py-2.5 rounded-xl text-[12px] font-bold uppercase tracking-wider" id="semana-actual-badge" style="background: #FEF3C7; color: #92400E;">
+      Cargando semana...
+    </div>
+    <div class="mb-xl">
+    <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
+      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      Pedidos esta Semana
+    </h3>
+    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-semanal">
+        <input class="w-full max-w-[200px] rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-semanal-nombre" placeholder="Buscar por nombre..." type="search">
+    </div>
+    <div class="hidden" id="resumen-semanal"></div>
+    <div class="grid grid-cols-1 gap-3" id="lista-pedidos-semanales"></div>
+    </div>
+    <div class="mb-xl">
+    <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
+      <span class="w-1 h-4 rounded-full" style="background: #059669;"></span>
+      Historial de Semanas
+    </h3>
+    <div id="historial-semanas"></div>
+    </div>
+    </section>
+    <!-- VIEW 3: ALTAS DE ASOCIADOS -->
+    <section class="view-section" id="vista-altas">
+    <div class="rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-lg mb-lg border border-outline-variant/20" style="background: #ffffff;">
+    <div class="flex items-center gap-sm mb-md">
+    <span class="material-symbols-outlined" style="color: #D97706;" data-icon="person_add">person_add</span>
+    <h2 class="font-headline-md text-headline-md text-on-surface">Alta de Asociado</h2>
+    </div>
+    <form class="space-y-4" id="form-altas">
+    <!-- Dropzone INE -->
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Foto de INE</label>
+    <input accept="image/*" class="hidden" id="input-foto-ine" type="file">
+    <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Identificacion" id="dropzone-ine">
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;" data-icon="badge">badge</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Subir Identificacion</span>
+    </div>
+    <div class="preview-grid hidden" id="preview-ine"></div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+    <div class="sm:col-span-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nombre Completo</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-nombre" required type="text">
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Telefono</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-telefono" type="tel">
+    </div>
+    <div>
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Correo</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-correo" type="email">
+    </div>
+    <div class="sm:col-span-2">
+    <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Recomendado por</label>
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="altas-recomendador" placeholder="Opcional" type="text">
+    </div>
+    </div>
+    <button class="w-full mt-4 h-12 btn-gradient text-white rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" id="btn-guardar-asociado" type="submit">
+    <span class="material-symbols-outlined" data-icon="how_to_reg">how_to_reg</span>
+                            Guardar Asociado
+                        </button>
+    </form>
+    </div>
+    <!-- History Section -->
+    <div class="mb-xl">
+    <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
+      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      Historial de Altas
+    </h3>
+    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-altas">
+        <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-altas-todos">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-altas-deudores">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="al-dia">Al dia <span class="chip-count" id="count-altas-al-dia">0</span></button>
+    </div>
+    <div class="rounded-xl p-3 mb-3 border border-outline-variant/20 grid grid-cols-1 sm:grid-cols-3 gap-2" style="background: #fff;">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-altas-nombre" placeholder="Buscar por nombre..." type="search">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all" id="filtro-altas-fecha" type="date">
+    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[13px] hover:bg-surface-container-high transition-colors" id="filtro-altas-limpiar">Limpiar filtros</button>
+    </div>
+    <div class="grid grid-cols-1 gap-3" id="historial-altas"></div>
+    </div>
+    </section>
+    </main>
+    <!-- BottomNavBar (Mobile Only) -->
+    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-[68px] px-margin-mobile pb-safe md:hidden z-50" style="background: #FFFBF5; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); border-top: 1px solid #F3F0EB;">
+    <button type="button" class="bottom-nav-item flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-all active:scale-90" style="background: linear-gradient(135deg, #D97706, #EA580C); color: white; min-width: 100px;" data-target="vista-clientes">
+    <span class="material-symbols-outlined text-xl mb-0.5">account_balance</span>
+                <span class="text-[11px] font-bold">Clientes</span>
+            </button>
+    <button type="button" class="bottom-nav-item flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-high transition-all active:scale-90 rounded-2xl" data-target="vista-pedidos" style="min-width: 100px;">
+    <span class="material-symbols-outlined text-xl mb-0.5">shopping_cart</span>
+                <span class="text-[11px] font-semibold">Pedidos</span>
+            </button>
+    <button type="button" class="bottom-nav-item flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-high transition-all active:scale-90 rounded-2xl" data-target="vista-altas" style="min-width: 100px;">
+    <span class="material-symbols-outlined text-xl mb-0.5">person_add</span>
+                <span class="text-[11px] font-semibold">Asociados</span>
+            </button>
+    </nav>
+    <div id="toast-container" aria-live="polite"></div>
+    <datalist id="lista-clientes"></datalist>
+    <div class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-md hidden" id="modal-editar">
+    <div class="bg-surface-container-lowest shadow-2xl w-full max-w-lg modal-panel border-t sm:border sm:rounded-2xl border-outline-variant/20">
+    <div class="flex items-center justify-between p-4 border-b border-outline-variant/20 sticky top-0 bg-surface-container-lowest z-10 rounded-t-2xl sm:rounded-t-2xl">
+    <h3 class="font-headline-md text-headline-md text-on-surface" id="modal-editar-title">Editar</h3>
+    <button type="button" class="p-2 rounded-full hover:bg-surface-container-high text-on-surface-variant transition-colors" id="modal-editar-cerrar">
+    <span class="material-symbols-outlined">close</span>
+    </button>
+    </div>
+    <div class="p-4" id="modal-editar-body"></div>
+    <div class="flex gap-3 p-4 border-t border-outline-variant/20 sticky bottom-0 bg-surface-container-lowest pb-safe sm:pb-4">
+    <button type="button" class="flex-1 h-12 rounded-full border border-outline-variant bg-white text-on-surface-variant font-button" id="modal-editar-cancelar">Cancelar</button>
+    <button type="button" class="flex-1 h-12 btn-gradient text-white rounded-full font-button" id="modal-editar-guardar">Guardar cambios</button>
+    </div>
+    </div>
+    </div>
+    <script src="app.js" defer></script>
+    </body></html>
