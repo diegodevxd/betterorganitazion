@@ -13,6 +13,7 @@ let modoFormulario = 'pedido';
 let modalSaveHandler = null;
 let filtroSaldo = 'todos';
 let filtroAltasSaldo = 'todos';
+let filtroSemanalSaldo = 'todos';
 let switchViewFn = null;
 const previewUrls = new Map();
 
@@ -157,6 +158,14 @@ function formatFriendlyError(err, fallback = 'Ocurrió un error inesperado.') {
     return msg;
   }
   return msg || fallback;
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
 }
 
 function showSuccessToast(message = 'Guardado', options = {}) {
@@ -1604,6 +1613,23 @@ function updateChipCounts() {
   setCount('count-altas-todos', allAsoc);
   setCount('count-altas-deudores', asocDeudores);
   setCount('count-altas-al-dia', asocAlDia);
+
+  // Semanal
+  const currentWeek = getWeekRange();
+  const semanalGroups = groupByCliente(
+    movimientosData.filter(
+      (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek)
+    )
+  );
+  const semanalSaldoMap = new Map(groups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
+  const semanalDeudores = semanalGroups.filter(
+    (g) => (semanalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0
+  ).length;
+  const semanalAlDia = semanalGroups.length - semanalDeudores;
+
+  setCount('count-semanal-todos', semanalGroups.length);
+  setCount('count-semanal-deudores', semanalDeudores);
+  setCount('count-semanal-al-dia', semanalAlDia);
 }
 
 function setupChipFiltro(containerId, renderFn, setFiltroFn) {
@@ -1691,9 +1717,22 @@ function getWeekLabelFromKey(key) {
 function getFilteredPedidosSemanales() {
   const nombre = document.getElementById('filtro-semanal-nombre')?.value.trim() || '';
   const currentWeek = getWeekRange();
-  const weekPedidos = movimientosData.filter(
+
+  let weekPedidos = movimientosData.filter(
     (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek) && matchesName(m.cliente, nombre)
   );
+
+  if (filtroSemanalSaldo !== 'todos') {
+    const allGroups = groupByCliente(movimientosData);
+    const deudores = new Set(
+      allGroups.filter((g) => g.debe > 0).map((g) => normalizeClienteKey(g.cliente))
+    );
+    weekPedidos = weekPedidos.filter((p) => {
+      const esDeudor = deudores.has(normalizeClienteKey(p.cliente));
+      return filtroSemanalSaldo === 'deudores' ? esDeudor : !esDeudor;
+    });
+  }
+
   return groupByCliente(weekPedidos);
 }
 
@@ -1803,6 +1842,7 @@ function renderPedidosSemanales() {
   const container = document.getElementById('lista-pedidos-semanales');
   if (!container) return;
 
+  updateChipCounts();
   renderSemanaBadge();
   const currentWeek = getWeekRange();
   const allWeekGroups = groupByCliente(
@@ -1813,7 +1853,7 @@ function renderPedidosSemanales() {
   renderResumenSemanal(allWeekGroups);
   const groups = getFilteredPedidosSemanales();
   const allGroups = groupByCliente(movimientosData);
-  const saldoMap = new Map(allGroups.map((g) => [g.cliente, g.debe]));
+  const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
   if (movimientosData.length === 0) {
     renderResumenSemanal([]);
@@ -1829,12 +1869,11 @@ function renderPedidosSemanales() {
   container.innerHTML = groups
     .map((group) => {
       const cliente = escapeHtml(group.cliente);
-      const saldo = saldoMap.get(group.cliente) || 0;
+      const saldo = saldoMap.get(normalizeClienteKey(group.cliente)) || 0;
       const saldoColor = saldo > 0 ? '#DC2626' : saldo < 0 ? '#059669' : '#D97706';
       const saldoLabel = saldo > 0 ? 'Debe' : saldo < 0 ? 'A favor' : 'Al dia';
 
       const pedidosHtml = group.movimientos
-        .filter((m) => m.tipo === 'pedido')
         .map((mov) => {
           const desc = mov.descripcion ? escapeHtml(mov.descripcion) : '';
           const fotos = Array.isArray(mov.array_urls_fotos) ? mov.array_urls_fotos : [];
@@ -2039,6 +2078,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   setupChipFiltro('chips-saldo-clientes', renderClientes, (v) => { filtroSaldo = v; });
   setupChipFiltro('chips-saldo-altas', renderAsociados, (v) => { filtroAltasSaldo = v; });
+  setupChipFiltro('chips-saldo-semanal', renderPedidosSemanales, (v) => { filtroSemanalSaldo = v; });
 
   autofillPagoFechaHora();
 
@@ -2046,7 +2086,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('form-pago')?.addEventListener('submit', handlePagoSubmit);
   document.getElementById('form-altas')?.addEventListener('submit', handleAltasSubmit);
 
-  document.getElementById('filtro-semanal-nombre')?.addEventListener('input', renderPedidosSemanales);
+  document.getElementById('filtro-semanal-nombre')?.addEventListener('input', debounce(renderPedidosSemanales, 250));
 
   document.getElementById('resumen-semanal')?.addEventListener('click', (event) => {
     if (event.target.closest('#btn-compartir-semana')) shareResumenSemanal();

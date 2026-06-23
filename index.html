@@ -571,6 +571,9 @@
       Pedidos esta Semana
     </h3>
     <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-semanal">
+        <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-semanal-todos">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-semanal-deudores">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="al-dia">Al día <span class="chip-count" id="count-semanal-al-dia">0</span></button>
         <input class="w-full max-w-[200px] rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-semanal-nombre" placeholder="Buscar por nombre..." type="search">
     </div>
     <div class="hidden" id="resumen-semanal"></div>
