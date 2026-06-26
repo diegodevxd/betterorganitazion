@@ -1736,25 +1736,50 @@ function getFilteredPedidosSemanales() {
   return groupByCliente(weekPedidos);
 }
 
-function buildResumenSemanalText(groups) {
+function computeSemanaResumenStats(groups) {
   const allGroups = groupByCliente(movimientosData);
   const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
   const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
-  let porCobrar = 0;
-  groups.forEach((g) => {
-    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-    if (debe > 0) porCobrar += debe;
-  });
-
   const numPedidos = groups.reduce(
     (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
     0
   );
 
-  let text = `*Pedidos BetterMancera*\n${getCurrentWeekLabel()}\n${getNextResetLabel()}\n\n`;
-  text += `Total semana: ${formatMoney(totalMonto)}\n`;
-  text += `Por cobrar (deudores): ${formatMoney(porCobrar)}\n`;
+  let porCobrar = 0;
+  let totalDeudoresPedidos = 0;
+  let totalAlDia = 0;
+
+  groups.forEach((g) => {
+    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+    if (debe > 0) {
+      porCobrar += debe;
+      totalDeudoresPedidos += g.totalPedido;
+    } else {
+      totalAlDia += g.totalPedido;
+    }
+  });
+
+  return {
+    saldoMap,
+    totalMonto,
+    numPedidos,
+    porCobrar,
+    totalDeudoresPedidos,
+    totalAlDia,
+    numClientes: groups.length,
+  };
+}
+
+function buildResumenSemanaText(groups, weekLabel, { extraHeaderLine } = {}) {
+  const { saldoMap, totalMonto, numPedidos, porCobrar, totalDeudoresPedidos, totalAlDia } =
+    computeSemanaResumenStats(groups);
+
+  let text = `*Pedidos BetterMancera*\n${weekLabel}\n`;
+  if (extraHeaderLine) text += `${extraHeaderLine}\n`;
+  text += `\nTotal semana: ${formatMoney(totalMonto)}\n`;
+  text += `Deudores: ${formatMoney(totalDeudoresPedidos)} en pedidos | Por cobrar: ${formatMoney(porCobrar)}\n`;
+  text += `Al dia: ${formatMoney(totalAlDia)} en pedidos\n`;
   text += `Clientes: ${groups.length} | Pedidos: ${numPedidos}\n\n`;
 
   groups
@@ -1769,13 +1794,36 @@ function buildResumenSemanalText(groups) {
   return text.trim();
 }
 
-function shareResumenSemanal() {
-  const currentWeek = getWeekRange();
-  const groups = groupByCliente(
+function buildResumenSemanalText(groups) {
+  return buildResumenSemanaText(groups, getCurrentWeekLabel(), {
+    extraHeaderLine: getNextResetLabel(),
+  });
+}
+
+function getPedidosGroupsForWeek(weekKey) {
+  return groupByCliente(
     movimientosData.filter(
-      (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek)
+      (m) => m.tipo === 'pedido' && getWeekKey(getMovimientoFecha(m)) === weekKey
     )
   );
+}
+
+function shareResumenSemana(weekKey) {
+  const groups = getPedidosGroupsForWeek(weekKey);
+
+  if (!groups.length) {
+    alert('No hay pedidos en esta semana para compartir.');
+    return;
+  }
+
+  const text = buildResumenSemanaText(groups, `Semana: ${getWeekLabelFromKey(weekKey)}`);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+function shareResumenSemanal() {
+  const { inicio } = getWeekRange();
+  const weekKey = formatDateKey(inicio);
+  const groups = getPedidosGroupsForWeek(weekKey);
 
   if (!groups.length) {
     alert('No hay pedidos esta semana para compartir.');
@@ -1796,24 +1844,12 @@ function renderResumenSemanal(groups) {
     return;
   }
 
-  const allGroups = groupByCliente(movimientosData);
-  const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
-
-  const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
-  const numClientes = groups.length;
-  const numPedidos = groups.reduce(
-    (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
-    0
-  );
-  let porCobrar = 0;
-  groups.forEach((g) => {
-    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-    if (debe > 0) porCobrar += debe;
-  });
+  const { totalMonto, numClientes, numPedidos, porCobrar, totalAlDia } =
+    computeSemanaResumenStats(groups);
 
   container.classList.remove('hidden');
   container.innerHTML = `
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
       <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-left: 4px solid #D97706;">
         <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #92400E;">Total semana</p>
         <p class="text-lg font-bold" style="color: #92400E;">${formatMoney(totalMonto)}</p>
@@ -1822,11 +1858,15 @@ function renderResumenSemanal(groups) {
         <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Por cobrar</p>
         <p class="text-lg font-bold" style="color: #991B1B;">${formatMoney(porCobrar)}</p>
       </div>
+      <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #059669;">
+        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #065F46;">Al dia</p>
+        <p class="text-lg font-bold" style="color: #065F46;">${formatMoney(totalAlDia)}</p>
+      </div>
       <div class="rounded-xl p-3 text-center" style="background: #FFFBF5; border-left: 4px solid #EA580C;">
         <p class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Clientes</p>
         <p class="text-lg font-bold text-on-surface">${numClientes}</p>
       </div>
-      <div class="rounded-xl p-3 text-center" style="background: #FFFBF5; border-left: 4px solid #D97706;">
+      <div class="rounded-xl p-3 text-center sm:col-span-2" style="background: #FFFBF5; border-left: 4px solid #D97706;">
         <p class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Pedidos</p>
         <p class="text-lg font-bold text-on-surface">${numPedidos}</p>
       </div>
@@ -1950,17 +1990,10 @@ function renderHistorialSemanas() {
       const label = getWeekLabelFromKey(weekKey);
       const total = semanaPedidos.reduce((s, p) => s + Number(p.monto), 0);
 
-      const groupedByClient = new Map();
-      semanaPedidos.forEach((p) => {
-        const key = p.cliente.trim();
-        if (!groupedByClient.has(key)) groupedByClient.set(key, { cliente: key, total: 0, count: 0 });
-        const g = groupedByClient.get(key);
-        g.total += Number(p.monto);
-        g.count++;
-      });
+      const weekGroups = groupByCliente(semanaPedidos);
+      const { porCobrar, totalAlDia } = computeSemanaResumenStats(weekGroups);
 
-      const clientsHtml = Array.from(groupedByClient.values())
-        .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
+      const clientsHtml = weekGroups
         .map((c) => `
           <div class="flex items-center justify-between py-2 border-t border-outline-variant/10 first:border-0 first:pt-0">
             <div class="flex items-center gap-2 min-w-0">
@@ -1970,13 +2003,30 @@ function renderHistorialSemanas() {
               </div>
               <div class="min-w-0">
                 <p class="text-[13px] font-semibold text-on-surface truncate">${escapeHtml(c.cliente)}</p>
-                <p class="text-[11px] text-outline">${c.count} pedido${c.count > 1 ? 's' : ''}</p>
+                <p class="text-[11px] text-outline">${c.movimientos.length} pedido${c.movimientos.length > 1 ? 's' : ''}</p>
               </div>
             </div>
-            <p class="text-[13px] font-bold shrink-0" style="color: #D97706;">${formatMoney(c.total)}</p>
+            <p class="text-[13px] font-bold shrink-0" style="color: #D97706;">${formatMoney(c.totalPedido)}</p>
           </div>
         `)
         .join('');
+
+      const miniResumenHtml = `
+        <div class="grid grid-cols-2 gap-2 pt-3 mb-3">
+          <div class="rounded-xl p-2.5 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 3px solid #DC2626;">
+            <p class="text-[9px] font-bold uppercase tracking-wider" style="color: #991B1B;">Por cobrar</p>
+            <p class="text-sm font-bold" style="color: #991B1B;">${formatMoney(porCobrar)}</p>
+          </div>
+          <div class="rounded-xl p-2.5 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 3px solid #059669;">
+            <p class="text-[9px] font-bold uppercase tracking-wider" style="color: #065F46;">Al dia</p>
+            <p class="text-sm font-bold" style="color: #065F46;">${formatMoney(totalAlDia)}</p>
+          </div>
+        </div>
+        <button type="button" data-share-week="${weekKey}" class="w-full h-10 mb-3 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
+          <span class="material-symbols-outlined text-[18px]">share</span>
+          Compartir resumen por WhatsApp
+        </button>
+      `;
 
       return `
         <div class="mb-2">
@@ -1988,6 +2038,7 @@ function renderHistorialSemanas() {
             <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
           </button>
           <div class="semana-pedidos hidden px-4 pb-3" data-week-content="${weekKey}">
+            ${miniResumenHtml}
             ${clientsHtml}
           </div>
         </div>
@@ -2090,6 +2141,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('resumen-semanal')?.addEventListener('click', (event) => {
     if (event.target.closest('#btn-compartir-semana')) shareResumenSemanal();
+  });
+
+  document.getElementById('historial-semanas')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-share-week]');
+    if (btn) shareResumenSemana(btn.dataset.shareWeek);
   });
 
   updatePedidoFechaInfo();
