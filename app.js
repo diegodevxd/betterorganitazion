@@ -1771,33 +1771,86 @@ function computeSemanaResumenStats(groups) {
   };
 }
 
-function buildResumenSemanaText(groups, weekLabel, { extraHeaderLine } = {}) {
-  const { saldoMap, totalMonto, numPedidos, porCobrar, totalDeudoresPedidos, totalAlDia } =
-    computeSemanaResumenStats(groups);
+function splitGroupsBySaldo(groups) {
+  const { saldoMap } = computeSemanaResumenStats(groups);
+  const deudores = [];
+  const alDia = [];
 
-  let text = `*Pedidos BetterMancera*\n${weekLabel}\n`;
+  groups.forEach((g) => {
+    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+    if (debe > 0) deudores.push({ ...g, debe });
+    else alDia.push(g);
+  });
+
+  return { deudores, alDia };
+}
+
+function countPedidosInGroups(groups) {
+  return groups.reduce(
+    (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
+    0
+  );
+}
+
+function buildResumenDeudoresText(deudores, weekLabel, { extraHeaderLine } = {}) {
+  const totalPedidos = deudores.reduce((sum, g) => sum + g.totalPedido, 0);
+  const porCobrar = deudores.reduce((sum, g) => sum + g.debe, 0);
+  const numPedidos = countPedidosInGroups(deudores);
+
+  let text = `*Pedidos BetterMancera - Deudores*\n${weekLabel}\n`;
   if (extraHeaderLine) text += `${extraHeaderLine}\n`;
-  text += `\nTotal semana: ${formatMoney(totalMonto)}\n`;
-  text += `Deudores: ${formatMoney(totalDeudoresPedidos)} en pedidos | Por cobrar: ${formatMoney(porCobrar)}\n`;
-  text += `Al dia: ${formatMoney(totalAlDia)} en pedidos\n`;
-  text += `Clientes: ${groups.length} | Pedidos: ${numPedidos}\n\n`;
+  text += `\nPedidos esta semana: ${formatMoney(totalPedidos)}\n`;
+  text += `Por cobrar: ${formatMoney(porCobrar)}\n`;
+  text += `Clientes: ${deudores.length} | Pedidos: ${numPedidos}\n\n`;
 
-  groups
+  deudores
     .slice()
     .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
     .forEach((g) => {
-      const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-      const debeTxt = debe > 0 ? ` (debe ${formatMoney(debe)})` : '';
-      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)}${debeTxt}\n`;
+      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)} (debe ${formatMoney(g.debe)})\n`;
     });
 
   return text.trim();
 }
 
-function buildResumenSemanalText(groups) {
-  return buildResumenSemanaText(groups, getCurrentWeekLabel(), {
-    extraHeaderLine: getNextResetLabel(),
-  });
+function buildResumenAlDiaText(alDia, weekLabel, { extraHeaderLine } = {}) {
+  const totalPedidos = alDia.reduce((sum, g) => sum + g.totalPedido, 0);
+  const numPedidos = countPedidosInGroups(alDia);
+
+  let text = `*Pedidos BetterMancera - Al dia*\n${weekLabel}\n`;
+  if (extraHeaderLine) text += `${extraHeaderLine}\n`;
+  text += `\nTotal pedidos: ${formatMoney(totalPedidos)}\n`;
+  text += `Clientes: ${alDia.length} | Pedidos: ${numPedidos}\n\n`;
+
+  alDia
+    .slice()
+    .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
+    .forEach((g) => {
+      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)}\n`;
+    });
+
+  return text.trim();
+}
+
+function renderWhatsAppShareButtons({ weekKey, compact = false } = {}) {
+  const weekAttr = weekKey ? ` data-share-week="${weekKey}"` : '';
+  const height = compact ? 'h-10' : 'h-11';
+  const iconSize = compact ? 'text-[16px]' : 'text-[18px]';
+  const textSize = compact ? 'text-[12px]' : 'text-button';
+  const margin = compact ? 'mb-3' : 'mb-4';
+
+  return `
+    <div class="grid grid-cols-2 gap-2 ${margin}">
+      <button type="button" data-share-tipo="deudores"${weekAttr} class="w-full ${height} rounded-full font-button ${textSize} flex items-center justify-center gap-1 transition-all text-white px-2" style="background: linear-gradient(135deg, #DC2626, #B91C1C); box-shadow: 0 2px 8px rgba(220,38,38,0.3);">
+        <span class="material-symbols-outlined ${iconSize}">share</span>
+        Resumen de deudores
+      </button>
+      <button type="button" data-share-tipo="al-dia"${weekAttr} class="w-full ${height} rounded-full font-button ${textSize} flex items-center justify-center gap-1 transition-all text-white px-2" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
+        <span class="material-symbols-outlined ${iconSize}">share</span>
+        Resumen al dia
+      </button>
+    </div>
+  `;
 }
 
 function getPedidosGroupsForWeek(weekKey) {
@@ -1808,7 +1861,7 @@ function getPedidosGroupsForWeek(weekKey) {
   );
 }
 
-function shareResumenSemana(weekKey) {
+function shareResumenSemana(weekKey, tipo) {
   const groups = getPedidosGroupsForWeek(weekKey);
 
   if (!groups.length) {
@@ -1816,22 +1869,33 @@ function shareResumenSemana(weekKey) {
     return;
   }
 
-  const text = buildResumenSemanaText(groups, `Semana: ${getWeekLabelFromKey(weekKey)}`);
+  const { deudores, alDia } = splitGroupsBySaldo(groups);
+  const weekLabel = `Semana: ${getWeekLabelFromKey(weekKey)}`;
+  const { inicio } = getWeekRange();
+  const isCurrentWeek = weekKey === formatDateKey(inicio);
+  const headerOpts = isCurrentWeek ? { extraHeaderLine: getNextResetLabel() } : {};
+
+  let text;
+  if (tipo === 'deudores') {
+    if (!deudores.length) {
+      alert('No hay deudores en esta semana para compartir.');
+      return;
+    }
+    text = buildResumenDeudoresText(deudores, weekLabel, headerOpts);
+  } else {
+    if (!alDia.length) {
+      alert('No hay clientes al dia en esta semana para compartir.');
+      return;
+    }
+    text = buildResumenAlDiaText(alDia, weekLabel, headerOpts);
+  }
+
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }
 
-function shareResumenSemanal() {
+function shareResumenSemanal(tipo) {
   const { inicio } = getWeekRange();
-  const weekKey = formatDateKey(inicio);
-  const groups = getPedidosGroupsForWeek(weekKey);
-
-  if (!groups.length) {
-    alert('No hay pedidos esta semana para compartir.');
-    return;
-  }
-
-  const text = buildResumenSemanalText(groups);
-  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  shareResumenSemana(formatDateKey(inicio), tipo);
 }
 
 function renderResumenSemanal(groups) {
@@ -1871,10 +1935,7 @@ function renderResumenSemanal(groups) {
         <p class="text-lg font-bold text-on-surface">${numPedidos}</p>
       </div>
     </div>
-    <button type="button" id="btn-compartir-semana" class="w-full h-11 mb-4 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
-      <span class="material-symbols-outlined text-[20px]">share</span>
-      Compartir resumen por WhatsApp
-    </button>
+    ${renderWhatsAppShareButtons()}
   `;
 }
 
@@ -2022,10 +2083,7 @@ function renderHistorialSemanas() {
             <p class="text-sm font-bold" style="color: #065F46;">${formatMoney(totalAlDia)}</p>
           </div>
         </div>
-        <button type="button" data-share-week="${weekKey}" class="w-full h-10 mb-3 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
-          <span class="material-symbols-outlined text-[18px]">share</span>
-          Compartir resumen por WhatsApp
-        </button>
+        ${renderWhatsAppShareButtons({ weekKey, compact: true })}
       `;
 
       return `
@@ -2140,12 +2198,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('filtro-semanal-nombre')?.addEventListener('input', debounce(renderPedidosSemanales, 250));
 
   document.getElementById('resumen-semanal')?.addEventListener('click', (event) => {
-    if (event.target.closest('#btn-compartir-semana')) shareResumenSemanal();
+    const btn = event.target.closest('[data-share-tipo]');
+    if (btn && !btn.dataset.shareWeek) shareResumenSemanal(btn.dataset.shareTipo);
   });
 
   document.getElementById('historial-semanas')?.addEventListener('click', (event) => {
-    const btn = event.target.closest('[data-share-week]');
-    if (btn) shareResumenSemana(btn.dataset.shareWeek);
+    const btn = event.target.closest('[data-share-tipo][data-share-week]');
+    if (btn) shareResumenSemana(btn.dataset.shareWeek, btn.dataset.shareTipo);
   });
 
   updatePedidoFechaInfo();
