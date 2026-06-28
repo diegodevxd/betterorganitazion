@@ -3,7 +3,7 @@
     <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
     <title>BetterMancera</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <meta name="theme-color" content="#D97706">
+    <meta name="theme-color" content="#00B2E3">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -17,53 +17,53 @@
                 theme: {
                     extend: {
                         "colors": {
-                            "background": "#FFFBF5",
+                            "background": "#FFFFFF",
                             "on-primary": "#ffffff",
-                            "on-secondary-fixed": "#022C22",
-                            "on-tertiary-fixed-variant": "#7C2D12",
+                            "on-secondary-fixed": "#001a33",
+                            "on-tertiary-fixed-variant": "#004d26",
                             "on-error": "#ffffff",
-                            "outline": "#78716C",
-                            "surface-tint": "#D97706",
-                            "inverse-primary": "#FCD34D",
-                            "secondary-fixed": "#D1FAE5",
+                            "outline": "#9CA3AF",
+                            "surface-tint": "#00B2E3",
+                            "inverse-primary": "#00B2E3",
+                            "secondary-fixed": "#E0F0FF",
                             "on-tertiary": "#ffffff",
-                            "primary": "#D97706",
-                            "primary-container": "#FEF3C7",
+                            "primary": "#00B2E3",
+                            "primary-container": "#E0F7FB",
                             "on-secondary": "#ffffff",
-                            "secondary-fixed-dim": "#A7F3D0",
-                            "on-primary-fixed": "#422006",
-                            "inverse-surface": "#292524",
-                            "on-background": "#1C1917",
-                            "tertiary-fixed": "#FFEDD5",
+                            "secondary-fixed-dim": "#B0D4F1",
+                            "on-primary-fixed": "#003545",
+                            "inverse-surface": "#1F2937",
+                            "on-background": "#333333",
+                            "tertiary-fixed": "#D1FAE5",
                             "error": "#DC2626",
-                            "surface-container-high": "#F5E6D0",
+                            "surface-container-high": "#E5E7EB",
                             "error-container": "#FEE2E2",
                             "surface-container-lowest": "#ffffff",
-                            "surface-bright": "#FFFBF5",
-                            "surface-container-low": "#FFF8EE",
-                            "on-secondary-fixed-variant": "#065F46",
-                            "surface": "#FFFBF5",
-                            "tertiary-container": "#FED7AA",
+                            "surface-bright": "#FFFFFF",
+                            "surface-container-low": "#F3F4F6",
+                            "on-secondary-fixed-variant": "#001F3F",
+                            "surface": "#FFFFFF",
+                            "tertiary-container": "#D1FAE5",
                             "on-error-container": "#991B1B",
-                            "on-surface-variant": "#57534E",
-                            "primary-fixed-dim": "#FBBF24",
-                            "on-tertiary-container": "#ffffff",
-                            "outline-variant": "#E7E0D8",
-                            "surface-variant": "#F5E6D0",
-                            "on-surface": "#1C1917",
-                            "on-secondary-container": "#065F46",
-                            "surface-dim": "#E7E5E4",
-                            "tertiary-fixed-dim": "#FB923C",
-                            "secondary-container": "#D1FAE5",
-                            "on-primary-container": "#78350F",
-                            "primary-fixed": "#FDE68A",
-                            "secondary": "#059669",
-                            "surface-container": "#FFF1E0",
-                            "tertiary": "#EA580C",
-                            "on-primary-fixed-variant": "#92400E",
-                            "inverse-on-surface": "#F5F5F4",
-                            "surface-container-highest": "#E7E0D8",
-                            "on-tertiary-fixed": "#431407"
+                            "on-surface-variant": "#6B7280",
+                            "primary-fixed-dim": "#80D8F7",
+                            "on-tertiary-container": "#004d26",
+                            "outline-variant": "#E5E7EB",
+                            "surface-variant": "#F3F4F6",
+                            "on-surface": "#333333",
+                            "on-secondary-container": "#001F3F",
+                            "surface-dim": "#E5E7EB",
+                            "tertiary-fixed-dim": "#A7F3D0",
+                            "secondary-container": "#E0F0FF",
+                            "on-primary-container": "#003545",
+                            "primary-fixed": "#B3E5FC",
+                            "secondary": "#002855",
+                            "surface-container": "#F9FAFB",
+                            "tertiary": "#00A859",
+                            "on-primary-fixed-variant": "#00667A",
+                            "inverse-on-surface": "#F9FAFB",
+                            "surface-container-highest": "#E5E7EB",
+                            "on-tertiary-fixed": "#003520"
                         },
                         "borderRadius": {
                             "DEFAULT": "0.25rem",
@@ -109,7 +109,7 @@
     <style>
             body {
                 -webkit-tap-highlight-color: transparent;
-                background: #FFFBF5;
+                background: #FFFFFF;
             }
             .pb-safe {
                 padding-bottom: max(12px, env(safe-area-inset-bottom));
@@ -140,14 +140,14 @@
                 from { opacity: 0; transform: translateY(10px); }
                 to { opacity: 1; transform: translateY(0); }
             }
-            /* Form Input Focus — Warm Amber */
+            /* Form Input Focus — Betterware Blue */
             .form-input {
-                border: 1.5px solid #E7E0D8;
+                border: 1.5px solid #E5E7EB;
                 transition: all 0.2s ease;
             }
             .form-input:focus {
-                box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.2);
-                border-color: #D97706;
+                box-shadow: 0 0 0 3px rgba(0, 178, 227, 0.2);
+                border-color: #00B2E3;
                 outline: none;
             }
             /* Drawer */
@@ -173,7 +173,7 @@
                 height: 80px;
                 object-fit: cover;
                 border-radius: 12px;
-                border: 2px solid #E7E0D8;
+                border: 2px solid #E5E7EB;
             }
             /* Toast */
             #toast-container {
@@ -194,9 +194,9 @@
                 gap: 8px;
                 padding: 12px 20px;
                 border-radius: 9999px;
-                background: linear-gradient(135deg, #FFFBF5, #FEF3C7);
-                border: 1px solid #FDE68A;
-                box-shadow: 0 4px 16px rgba(217, 119, 6, 0.15);
+                background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
+                border: 1px solid #B3E5FC;
+                box-shadow: 0 4px 16px rgba(0, 178, 227, 0.15);
                 opacity: 0;
                 transform: translateY(-12px) scale(0.95);
                 transition: opacity 0.3s ease, transform 0.3s ease;
@@ -210,12 +210,12 @@
                 transform: translateY(-8px) scale(0.95);
             }
             .success-toast .toast-icon {
-                color: #D97706;
+                color: #00B2E3;
                 font-size: 24px;
                 line-height: 1;
             }
             .success-toast .toast-text {
-                color: #92400E;
+                color: #00667A;
                 font-weight: 600;
                 font-size: 14px;
             }
@@ -232,7 +232,7 @@
                 width: 100%;
                 height: 36px;
                 border-radius: 9999px;
-                background: linear-gradient(135deg, #D97706, #EA580C);
+                background: linear-gradient(135deg, #00B2E3, #002855);
                 color: white;
                 font-weight: 600;
                 font-size: 13px;
@@ -272,7 +272,7 @@
                     transform: translateY(0) scale(0.95);
                 }
             }
-            /* Edit Button — Warm */
+            /* Edit Button — Betterware Blue */
             .btn-editar {
                 display: inline-flex;
                 align-items: center;
@@ -280,15 +280,15 @@
                 padding: 4px 12px;
                 border-radius: 9999px;
                 background: transparent;
-                color: #D97706;
-                border: 1.5px solid rgba(217, 119, 6, 0.25);
+                color: #00B2E3;
+                border: 1.5px solid rgba(0, 178, 227, 0.25);
                 font-size: 13px;
                 font-weight: 600;
                 flex-shrink: 0;
                 transition: all 0.2s ease;
             }
             .btn-editar:active {
-                background: #FEF3C7;
+                background: #E0F7FB;
                 transform: scale(0.95);
             }
             .btn-eliminar {
@@ -318,9 +318,9 @@
                 border-radius: 9999px;
                 font-size: 12px;
                 font-weight: 600;
-                border: 1.5px solid #D97706;
-                background: #FEF3C7;
-                color: #92400E;
+                border: 1.5px solid #00B2E3;
+                background: #E0F7FB;
+                color: #00667A;
                 cursor: pointer;
             }
             .chip-sugerencia-cliente:active {
@@ -333,9 +333,9 @@
                 padding: 10px 14px;
                 margin-bottom: 12px;
                 border-radius: 12px;
-                background: #FEF3C7;
-                border: 1px solid #FDE68A;
-                color: #92400E;
+                background: #E0F7FB;
+                border: 1px solid #B3E5FC;
+                color: #00667A;
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -348,9 +348,9 @@
                 border-radius: 9999px;
                 font-size: 13px;
                 font-weight: 600;
-                border: 1.5px solid #E7E0D8;
+                border: 1.5px solid #E5E7EB;
                 background: #ffffff;
-                color: #57534E;
+                color: #6B7280;
                 cursor: pointer;
                 transition: all 0.2s ease;
                 user-select: none;
@@ -361,9 +361,9 @@
                 transform: scale(0.96);
             }
             .chip-filtro.active {
-                background: #FEF3C7;
-                color: #92400E;
-                border-color: #D97706;
+                background: #E0F7FB;
+                color: #00667A;
+                border-color: #00B2E3;
             }
             .chip-filtro .chip-count {
                 display: inline-flex;
@@ -379,24 +379,24 @@
                 color: inherit;
             }
             .chip-filtro.active .chip-count {
-                background: rgba(146,64,14,0.12);
+                background: rgba(0,102,122,0.12);
             }
-            /* Dropzones — Warm Gradient */
+            /* Dropzones — Betterware Blue Gradient */
             .dropzone {
-                border: 2px dashed #D4A574;
-                background: linear-gradient(135deg, #FFFBF5, #FEF3C7);
+                border: 2px dashed #66D0F0;
+                background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
                 border-radius: 16px;
                 transition: all 0.2s ease;
             }
             .dropzone:active {
                 transform: scale(0.98);
-                border-color: #D97706;
-                background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+                border-color: #00B2E3;
+                background: linear-gradient(135deg, #E0F7FB, #B3E5FC);
             }
             /* Gradient Buttons */
             .btn-gradient {
-                background: linear-gradient(135deg, #D97706, #EA580C);
-                box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+                background: linear-gradient(135deg, #00B2E3, #002855);
+                box-shadow: 0 2px 8px rgba(0, 178, 227, 0.3);
             }
             .btn-gradient:active {
                 transform: scale(0.98);
@@ -407,7 +407,7 @@
     </head>
     <body class="bg-background text-on-surface font-body-md min-h-screen pb-24 md:pb-0 overflow-x-hidden">
     <!-- TopAppBar -->
-    <header class="fixed top-0 w-full z-50 h-16 px-margin-mobile flex items-center justify-between" style="background: linear-gradient(135deg, #D97706, #EA580C); box-shadow: 0 2px 12px rgba(217,119,6,0.3);">
+    <header class="fixed top-0 w-full z-50 h-16 px-margin-mobile flex items-center justify-between" style="background: linear-gradient(135deg, #00B2E3, #002855); box-shadow: 0 2px 12px rgba(0,178,227,0.3);">
     <div class="flex items-center gap-md">
     <button type="button" class="p-2 -ml-2 rounded-full hover:bg-white/20 transition-colors active:scale-95 text-white/90" id="btn-menu">
     <span class="material-symbols-outlined" data-icon="menu">menu</span>
@@ -417,15 +417,15 @@
     </header>
     <!-- Navigation Drawer (Overlay) -->
     <div class="fixed inset-0 bg-black/50 z-[60] hidden transition-opacity duration-300 opacity-0" id="drawer-overlay"></div>
-    <nav class="fixed top-0 left-0 h-full w-72 rounded-r-2xl shadow-2xl z-[70] transform -translate-x-full transition-transform duration-300 flex flex-col p-md" style="background: #FFFBF5;" id="nav-drawer">
+    <nav class="fixed top-0 left-0 h-full w-72 rounded-r-2xl shadow-2xl z-[70] transform -translate-x-full transition-transform duration-300 flex flex-col p-md" style="background: #FFFFFF;" id="nav-drawer">
     <div class="flex items-center justify-between mb-lg pt-sm px-sm">
-    <h2 class="font-headline-md text-headline-md" style="color: #92400E;">Menu Principal</h2>
+    <h2 class="font-headline-md text-headline-md" style="color: #00667A;">Menu Principal</h2>
     <button type="button" class="p-2 rounded-full hover:bg-surface-container-high transition-colors text-on-surface-variant" id="btn-close-menu">
     <span class="material-symbols-outlined" data-icon="close">close</span>
     </button>
     </div>
     <div class="flex flex-col gap-sm">
-    <button type="button" class="nav-drawer-item flex items-center gap-md rounded-2xl px-md py-sm font-body-lg text-body-lg transition-all active:opacity-80" style="background: #FEF3C7; color: #92400E;" data-target="vista-clientes">
+    <button type="button" class="nav-drawer-item flex items-center gap-md rounded-2xl px-md py-sm font-body-lg text-body-lg transition-all active:opacity-80" style="background: #E0F7FB; color: #00667A;" data-target="vista-clientes">
     <span class="material-symbols-outlined" data-icon="account_balance">account_balance</span>
                     Clientes
                 </button>
@@ -445,7 +445,7 @@
     <section class="view-section active" id="vista-clientes">
     <div class="rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-lg mb-lg border border-outline-variant/20" style="background: #ffffff;">
     <div class="flex items-center gap-sm mb-md">
-    <span class="material-symbols-outlined" style="color: #D97706;" data-icon="account_balance">account_balance</span>
+    <span class="material-symbols-outlined" style="color: #00B2E3;" data-icon="account_balance">account_balance</span>
     <h2 class="font-headline-md text-headline-md text-on-surface">Cuenta de Cliente</h2>
     </div>
     <div class="flex gap-sm mb-md">
@@ -487,8 +487,8 @@
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Fotos del Pedido</label>
     <input accept="image/*" class="hidden" id="input-fotos-pedido" multiple type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Seleccionar Imagenes" id="dropzone-pedido">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;">photo_library</span>
-    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Seleccionar Imagenes</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;">photo_library</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Seleccionar Imagenes</span>
     </div>
     <div class="preview-grid hidden" id="preview-pedido"></div>
     </div>
@@ -530,8 +530,8 @@
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Comprobante (Foto)</label>
     <input accept="image/*" class="hidden" id="input-foto-pago" type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Comprobante" id="dropzone-pago">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;">add_a_photo</span>
-    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Subir Comprobante</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;">add_a_photo</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Subir Comprobante</span>
     </div>
     <div class="preview-grid hidden" id="preview-pago"></div>
     </div>
@@ -544,7 +544,7 @@
     <div class="mb-xl">
     <div class="grid grid-cols-3 gap-3 mb-4" id="dashboard-clientes"></div>
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
-      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Cuentas de Clientes
     </h3>
     <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-clientes">
@@ -562,12 +562,12 @@
     </section>
     <!-- VIEW 2: PEDIDOS SEMANALES -->
     <section class="view-section" id="vista-pedidos">
-    <div class="mb-4 px-3 py-2.5 rounded-xl text-[12px] font-bold uppercase tracking-wider" id="semana-actual-badge" style="background: #FEF3C7; color: #92400E;">
+    <div class="mb-4 px-3 py-2.5 rounded-xl text-[12px] font-bold uppercase tracking-wider" id="semana-actual-badge" style="background: #E0F7FB; color: #00667A;">
       Cargando semana...
     </div>
     <div class="mb-xl">
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
-      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Pedidos esta Semana
     </h3>
     <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-semanal">
@@ -581,7 +581,7 @@
     </div>
     <div class="mb-xl">
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
-      <span class="w-1 h-4 rounded-full" style="background: #059669;"></span>
+      <span class="w-1 h-4 rounded-full" style="background: #00A859;"></span>
       Historial de Semanas
     </h3>
     <div id="historial-semanas"></div>
@@ -591,7 +591,7 @@
     <section class="view-section" id="vista-altas">
     <div class="rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-lg mb-lg border border-outline-variant/20" style="background: #ffffff;">
     <div class="flex items-center gap-sm mb-md">
-    <span class="material-symbols-outlined" style="color: #D97706;" data-icon="person_add">person_add</span>
+    <span class="material-symbols-outlined" style="color: #00B2E3;" data-icon="person_add">person_add</span>
     <h2 class="font-headline-md text-headline-md text-on-surface">Alta de Asociado</h2>
     </div>
     <form class="space-y-4" id="form-altas">
@@ -600,8 +600,8 @@
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Foto de INE</label>
     <input accept="image/*" class="hidden" id="input-foto-ine" type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Identificacion" id="dropzone-ine">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #D4A574;" data-icon="badge">badge</span>
-    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #A8A29E;">Subir Identificacion</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;" data-icon="badge">badge</span>
+    <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Subir Identificacion</span>
     </div>
     <div class="preview-grid hidden" id="preview-ine"></div>
     </div>
@@ -632,7 +632,7 @@
     <!-- History Section -->
     <div class="mb-xl">
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
-      <span class="w-1 h-4 rounded-full" style="background: #D97706;"></span>
+      <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Historial de Altas
     </h3>
     <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-altas">
@@ -650,8 +650,8 @@
     </section>
     </main>
     <!-- BottomNavBar (Mobile Only) -->
-    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-[68px] px-margin-mobile pb-safe md:hidden z-50" style="background: #FFFBF5; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); border-top: 1px solid #F3F0EB;">
-    <button type="button" class="bottom-nav-item flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-all active:scale-90" style="background: linear-gradient(135deg, #D97706, #EA580C); color: white; min-width: 100px;" data-target="vista-clientes">
+    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-[68px] px-margin-mobile pb-safe md:hidden z-50" style="background: #FFFFFF; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); border-top: 1px solid #E5E7EB;">
+    <button type="button" class="bottom-nav-item flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-all active:scale-90" style="background: linear-gradient(135deg, #00B2E3, #002855); color: white; min-width: 100px;" data-target="vista-clientes">
     <span class="material-symbols-outlined text-xl mb-0.5">account_balance</span>
                 <span class="text-[11px] font-bold">Clientes</span>
             </button>
@@ -664,9 +664,9 @@
                 <span class="text-[11px] font-semibold">Asociados</span>
             </button>
     </nav>
-    <div class="hidden fixed left-4 right-4 z-[90] rounded-2xl p-4 shadow-lg border border-outline-variant/20 md:hidden" id="ios-install-banner" style="bottom: calc(76px + env(safe-area-inset-bottom)); background: #FFFBF5;">
+    <div class="hidden fixed left-4 right-4 z-[90] rounded-2xl p-4 shadow-lg border border-outline-variant/20 md:hidden" id="ios-install-banner" style="bottom: calc(76px + env(safe-area-inset-bottom)); background: #FFFFFF;">
     <div class="flex gap-3 items-start">
-    <span class="material-symbols-outlined shrink-0" style="color: #D97706;">install_mobile</span>
+    <span class="material-symbols-outlined shrink-0" style="color: #00B2E3;">install_mobile</span>
     <div class="flex-1 min-w-0">
     <p class="font-semibold text-on-surface text-[14px]">Instalar en tu iPhone</p>
     <p class="text-[12px] text-on-surface-variant mt-1">Toca <strong>Compartir</strong> abajo en Safari y elige <strong>Agregar a inicio</strong>.</p>

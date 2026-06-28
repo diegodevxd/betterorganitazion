@@ -245,7 +245,7 @@ function photoActionsHtml(url, filename, compact = false) {
   const btnClass = compact
     ? 'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container-high transition-colors'
     : 'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold hover:opacity-90 transition-opacity';
-  const btnStyle = compact ? '' : 'background: #FEF3C7; color: #92400E;';
+  const btnStyle = compact ? '' : 'background: #E0F7FB; color: #00667A;';
 
   return `
     <div class="flex flex-wrap gap-1 ${compact ? '' : 'mt-1'}">
@@ -391,7 +391,7 @@ function renderEmptyState(container, message) {
   if (!container) return;
   container.innerHTML = `
     <div class="flex flex-col items-center justify-center py-12 text-center">
-      <span class="material-symbols-outlined text-[48px] mb-3" style="color: #D4A574;">inbox</span>
+      <span class="material-symbols-outlined text-[48px] mb-3" style="color: #66D0F0;">inbox</span>
       <p class="text-sm text-outline max-w-[200px]">${message}</p>
     </div>
   `;
@@ -405,7 +405,7 @@ function renderDashboard() {
   const numDeudores = groups.filter((g) => g.debe > 0).length;
   const totalDeudores = groups.filter((g) => g.debe > 0).reduce((sum, g) => sum + g.debe, 0);
   const numAlDia = groups.filter((g) => g.debe <= 0).length;
-  const totalAlDia = groups.filter((g) => g.debe <= 0).reduce((s, g) => s + g.totalPagado, 0);
+  const totalAlDia = groups.filter((g) => g.debe <= 0).reduce((s, g) => s + Math.abs(g.debe), 0);
   const balanceGeneral = groups.reduce((sum, g) => sum + g.debe, 0);
 
   container.innerHTML = `
@@ -414,15 +414,15 @@ function renderDashboard() {
       <p class="text-xl font-bold" style="color: #991B1B;">${numDeudores}</p>
       <p class="text-[11px] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
     </div>
-    <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #059669;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #065F46;">Al dia</p>
-      <p class="text-xl font-bold" style="color: #065F46;">${numAlDia}</p>
-      <p class="text-[11px] font-semibold" style="color: #059669;">${formatMoney(totalAlDia)}</p>
+    <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #00A859;">
+      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al dia</p>
+      <p class="text-xl font-bold" style="color: #004d26;">${numAlDia}</p>
+      <p class="text-[11px] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
     </div>
-    <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-left: 4px solid #D97706;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #92400E;">Balance</p>
-      <p class="text-xl font-bold" style="color: #92400E;">${groups.length}</p>
-      <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#059669' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
+    <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #E0F7FB, #B3E5FC); border-left: 4px solid #00B2E3;">
+      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #00667A;">Balance</p>
+      <p class="text-xl font-bold" style="color: #00667A;">${groups.length}</p>
+      <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
     </div>
   `;
 }
@@ -615,7 +615,7 @@ function updateClienteSaldoHint(inputId, hintId, sugerenciasId) {
   if (similares.length) {
     hint.classList.remove('hidden');
     hint.className = 'font-label-md text-label-md mt-xs';
-    hint.style.color = '#92400E';
+    hint.style.color = '#00667A';
     hint.textContent = '¿Quiso decir uno de estos clientes?';
     renderSugerenciasClientes(inputId, sugerenciasId, similares);
     return;
@@ -1059,8 +1059,8 @@ function initNavigation() {
 
     drawerItems.forEach((item) => {
       if (item.dataset.target === targetId) {
-        item.style.background = '#FEF3C7';
-        item.style.color = '#92400E';
+        item.style.background = '#E0F7FB';
+        item.style.color = '#00667A';
       } else {
         item.style.background = '';
         item.style.color = '';
@@ -1069,7 +1069,7 @@ function initNavigation() {
 
     bottomNavItems.forEach((item) => {
       if (item.dataset.target === targetId) {
-        item.style.background = 'linear-gradient(135deg, #D97706, #EA580C)';
+        item.style.background = 'linear-gradient(135deg, #00B2E3, #002855)';
         item.style.color = 'white';
         item.style.minWidth = '100px';
         item.className = 'bottom-nav-item flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-all active:scale-90';
@@ -1154,9 +1154,9 @@ function renderMovimientoItem(mov) {
   const clienteSlug = escapeHtml(mov.cliente).replace(/\s+/g, '-');
   const esPedido = mov.tipo === 'pedido';
   const tipoLabel = esPedido ? 'Pedido' : 'Pago';
-  const stripeColor = esPedido ? '#EA580C' : '#059669';
-  const badgeBg = esPedido ? '#FFEDD5' : '#D1FAE5';
-  const badgeText = esPedido ? '#9A3412' : '#065F46';
+  const stripeColor = esPedido ? '#002855' : '#00A859';
+  const badgeBg = esPedido ? '#E0F0FF' : '#D1FAE5';
+  const badgeText = esPedido ? '#00667A' : '#004d26';
   const fotos = Array.isArray(mov.array_urls_fotos) ? mov.array_urls_fotos : [];
   const descripcion = mov.descripcion ? escapeHtml(mov.descripcion) : '';
 
@@ -1168,7 +1168,7 @@ function renderMovimientoItem(mov) {
       .map(
         (url, i) => `
           <div class="shrink-0">
-            <div class="w-12 h-12 rounded-lg overflow-hidden" style="background: #F5F5F4;">
+            <div class="w-12 h-12 rounded-lg overflow-hidden" style="background: #F3F4F6;">
               <a href="${escapeHtml(url)}" target="_blank" rel="noopener">
                 <img class="w-full h-full object-cover" src="${escapeHtml(url)}" alt="Foto ${i + 1}" loading="lazy">
               </a>
@@ -1231,15 +1231,15 @@ function renderClientes() {
   container.innerHTML = groups
     .map((group) => {
       const cliente = escapeHtml(group.cliente);
-      const borderColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#059669' : '#D97706';
-      const cardBg = group.debe > 0 ? '#FEF2F2' : group.debe < 0 ? '#ECFDF5' : '#FFFBF5';
+      const borderColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#00A859' : '#00B2E3';
+      const cardBg = group.debe > 0 ? '#FEF2F2' : group.debe < 0 ? '#ECFDF5' : '#FFFFFF';
       const debeClass =
         group.debe > 0
           ? 'font-bold'
           : group.debe < 0
             ? 'font-bold'
             : 'font-bold';
-      const debeColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#059669' : '#D97706';
+      const debeColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#00A859' : '#00B2E3';
       const debeLabel =
         group.debe > 0 ? 'Debe' : group.debe < 0 ? 'Saldo a favor' : 'Al corriente';
 
@@ -1471,10 +1471,10 @@ function renderAsociados() {
       const fotoFilename = `ine-${nombre.replace(/\s+/g, '-')}.jpg`;
 
       return `
-        <div class="rounded-2xl p-4 flex flex-col gap-3 transition-all" style="background: #FFFBF5; border-left: 4px solid #D97706; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
+        <div class="rounded-2xl p-4 flex flex-col gap-3 transition-all" style="background: #FFFFFF; border-left: 4px solid #00B2E3; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
           <div class="flex items-center gap-3">
             <div class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
-                 style="background: #FEF3C7; color: #92400E;">
+                 style="background: #E0F7FB; color: #00667A;">
               ${getInitials(asociado.nombre_nuevo)}
             </div>
             <div class="flex-1 min-w-0">
@@ -1504,7 +1504,7 @@ function renderAsociados() {
           ${
             fotoUrl
               ? `<div>
-                  <div class="w-full h-32 rounded-xl overflow-hidden" style="background: #F5F5F4;">
+                  <div class="w-full h-32 rounded-xl overflow-hidden" style="background: #F3F4F6;">
                     <a href="${escapeHtml(fotoUrl)}" target="_blank" rel="noopener">
                       <img class="w-full h-full object-cover" src="${escapeHtml(fotoUrl)}" alt="INE de ${nombre}" loading="lazy">
                     </a>
@@ -1741,201 +1741,102 @@ function computeSemanaResumenStats(groups) {
   const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
   const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
+  const numClientes = groups.length;
   const numPedidos = groups.reduce(
     (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
     0
   );
 
-  let porCobrar = 0;
-  let totalDeudoresPedidos = 0;
-  let totalAlDia = 0;
-
-  groups.forEach((g) => {
-    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-    if (debe > 0) {
-      porCobrar += debe;
-      totalDeudoresPedidos += g.totalPedido;
-    } else {
-      totalAlDia += g.totalPedido;
-    }
-  });
-
-  return {
-    saldoMap,
-    totalMonto,
-    numPedidos,
-    porCobrar,
-    totalDeudoresPedidos,
-    totalAlDia,
-    numClientes: groups.length,
-  };
+  return { saldoMap, totalMonto, numClientes, numPedidos };
 }
 
-function splitGroupsBySaldo(groups) {
-  const { saldoMap } = computeSemanaResumenStats(groups);
-  const deudores = [];
-  const alDia = [];
+function buildResumenSemanalText(groups, weekLabel, extraHeaderLine) {
+  const { saldoMap, totalMonto, numClientes, numPedidos } = computeSemanaResumenStats(groups);
 
-  groups.forEach((g) => {
-    const debe = saldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-    if (debe > 0) deudores.push({ ...g, debe });
-    else alDia.push(g);
-  });
+  const allGroups = groupByCliente(movimientosData);
+  const globalSaldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
+  const numDeudoresGlobal = allGroups.filter((g) => g.debe > 0).length;
+  const totalDeudoresGlobal = allGroups.filter((g) => g.debe > 0).reduce((s, g) => s + g.debe, 0);
 
-  return { deudores, alDia };
+  const deudores = groups.filter((g) => (saldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0);
+
+  let text = `*Pedidos Betterorden*\n${weekLabel}\n`;
+  if (extraHeaderLine) text += `${extraHeaderLine}\n`;
+  text += `\nTotal semana: ${formatMoney(totalMonto)}\n`;
+  text += `Clientes: ${numClientes}  |  Pedidos: ${numPedidos}\n`;
+  text += `\nDeudores totales: ${numDeudoresGlobal}  |  ${formatMoney(totalDeudoresGlobal)}\n`;
+
+  if (deudores.length > 0) {
+    text += `\n`;
+    deudores
+      .slice()
+      .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
+      .forEach((g) => {
+        const debe = globalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0;
+        text += `- ${g.cliente}: debe ${formatMoney(debe)}\n`;
+      });
+  }
+
+  return text.trim();
 }
 
-function countPedidosInGroups(groups) {
-  return groups.reduce(
-    (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
-    0
+function shareResumenSemanal() {
+  const currentWeek = getWeekRange();
+  const groups = groupByCliente(
+    movimientosData.filter(
+      (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek)
+    )
   );
+
+  if (!groups.length) {
+    alert('No hay pedidos esta semana para compartir.');
+    return;
+  }
+
+  const weekLabel = getCurrentWeekLabel();
+  const text = buildResumenSemanalText(groups, weekLabel, getNextResetLabel());
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }
 
-function buildResumenDeudoresText(deudores, weekLabel, { extraHeaderLine } = {}) {
-  const totalPedidos = deudores.reduce((sum, g) => sum + g.totalPedido, 0);
-  const porCobrar = deudores.reduce((sum, g) => sum + g.debe, 0);
-  const numPedidos = countPedidosInGroups(deudores);
-
-  let text = `*Pedidos BetterMancera - Deudores*\n${weekLabel}\n`;
-  if (extraHeaderLine) text += `${extraHeaderLine}\n`;
-  text += `\nPedidos esta semana: ${formatMoney(totalPedidos)}\n`;
-  text += `Por cobrar: ${formatMoney(porCobrar)}\n`;
-  text += `Clientes: ${deudores.length} | Pedidos: ${numPedidos}\n\n`;
-
-  deudores
-    .slice()
-    .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
-    .forEach((g) => {
-      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)} (debe ${formatMoney(g.debe)})\n`;
-    });
-
-  return text.trim();
-}
-
-function buildResumenAlDiaText(alDia, weekLabel, { extraHeaderLine } = {}) {
-  const totalPedidos = alDia.reduce((sum, g) => sum + g.totalPedido, 0);
-  const numPedidos = countPedidosInGroups(alDia);
-
-  let text = `*Pedidos BetterMancera - Al dia*\n${weekLabel}\n`;
-  if (extraHeaderLine) text += `${extraHeaderLine}\n`;
-  text += `\nTotal pedidos: ${formatMoney(totalPedidos)}\n`;
-  text += `Clientes: ${alDia.length} | Pedidos: ${numPedidos}\n\n`;
-
-  alDia
-    .slice()
-    .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
-    .forEach((g) => {
-      text += `- ${g.cliente}: ${formatMoney(g.totalPedido)}\n`;
-    });
-
-  return text.trim();
-}
-
-function renderWhatsAppShareButtons({ weekKey, compact = false } = {}) {
-  const weekAttr = weekKey ? ` data-share-week="${weekKey}"` : '';
-  const height = compact ? 'h-10' : 'h-11';
-  const iconSize = compact ? 'text-[16px]' : 'text-[18px]';
-  const textSize = compact ? 'text-[12px]' : 'text-button';
-  const margin = compact ? 'mb-3' : 'mb-4';
-
-  return `
-    <div class="grid grid-cols-2 gap-2 ${margin}">
-      <button type="button" data-share-tipo="deudores"${weekAttr} class="w-full ${height} rounded-full font-button ${textSize} flex items-center justify-center gap-1 transition-all text-white px-2" style="background: linear-gradient(135deg, #DC2626, #B91C1C); box-shadow: 0 2px 8px rgba(220,38,38,0.3);">
-        <span class="material-symbols-outlined ${iconSize}">share</span>
-        Resumen de deudores
-      </button>
-      <button type="button" data-share-tipo="al-dia"${weekAttr} class="w-full ${height} rounded-full font-button ${textSize} flex items-center justify-center gap-1 transition-all text-white px-2" style="background: linear-gradient(135deg, #059669, #047857); box-shadow: 0 2px 8px rgba(5,150,105,0.3);">
-        <span class="material-symbols-outlined ${iconSize}">share</span>
-        Resumen al dia
-      </button>
-    </div>
-  `;
-}
-
-function getPedidosGroupsForWeek(weekKey) {
-  return groupByCliente(
+function shareResumenSemana(weekKey) {
+  const groups = groupByCliente(
     movimientosData.filter(
       (m) => m.tipo === 'pedido' && getWeekKey(getMovimientoFecha(m)) === weekKey
     )
   );
-}
-
-function shareResumenSemana(weekKey, tipo) {
-  const groups = getPedidosGroupsForWeek(weekKey);
 
   if (!groups.length) {
     alert('No hay pedidos en esta semana para compartir.');
     return;
   }
 
-  const { deudores, alDia } = splitGroupsBySaldo(groups);
   const weekLabel = `Semana: ${getWeekLabelFromKey(weekKey)}`;
-  const { inicio } = getWeekRange();
-  const isCurrentWeek = weekKey === formatDateKey(inicio);
-  const headerOpts = isCurrentWeek ? { extraHeaderLine: getNextResetLabel() } : {};
-
-  let text;
-  if (tipo === 'deudores') {
-    if (!deudores.length) {
-      alert('No hay deudores en esta semana para compartir.');
-      return;
-    }
-    text = buildResumenDeudoresText(deudores, weekLabel, headerOpts);
-  } else {
-    if (!alDia.length) {
-      alert('No hay clientes al dia en esta semana para compartir.');
-      return;
-    }
-    text = buildResumenAlDiaText(alDia, weekLabel, headerOpts);
-  }
-
+  const text = buildResumenSemanalText(groups, weekLabel);
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }
 
-function shareResumenSemanal(tipo) {
-  const { inicio } = getWeekRange();
-  shareResumenSemana(formatDateKey(inicio), tipo);
-}
-
-function renderResumenSemanal(groups) {
+function renderResumenSemanal(totalMonto, numClientes, numPedidos, numDeudoresGlobal, totalDeudoresGlobal) {
   const container = document.getElementById('resumen-semanal');
   if (!container) return;
 
-  if (!groups.length) {
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    return;
-  }
-
-  const { totalMonto, numClientes, numPedidos, porCobrar, totalAlDia } =
-    computeSemanaResumenStats(groups);
-
   container.classList.remove('hidden');
   container.innerHTML = `
-    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
-      <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-left: 4px solid #D97706;">
-        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #92400E;">Total semana</p>
-        <p class="text-lg font-bold" style="color: #92400E;">${formatMoney(totalMonto)}</p>
+    <div class="grid grid-cols-2 gap-3 mb-3">
+      <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #E0F7FB, #B3E5FC); border-left: 4px solid #00B2E3;">
+        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #00667A;">Esta semana</p>
+        <p class="text-lg font-bold" style="color: #00667A;">${formatMoney(totalMonto)}</p>
+        <p class="text-[10px] font-semibold" style="color: #00667A; opacity: 0.7;">${numClientes} clientes \u00B7 ${numPedidos} pedidos</p>
       </div>
       <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 4px solid #DC2626;">
-        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Por cobrar</p>
-        <p class="text-lg font-bold" style="color: #991B1B;">${formatMoney(porCobrar)}</p>
-      </div>
-      <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #059669;">
-        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #065F46;">Al dia</p>
-        <p class="text-lg font-bold" style="color: #065F46;">${formatMoney(totalAlDia)}</p>
-      </div>
-      <div class="rounded-xl p-3 text-center" style="background: #FFFBF5; border-left: 4px solid #EA580C;">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Clientes</p>
-        <p class="text-lg font-bold text-on-surface">${numClientes}</p>
-      </div>
-      <div class="rounded-xl p-3 text-center sm:col-span-2" style="background: #FFFBF5; border-left: 4px solid #D97706;">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Pedidos</p>
-        <p class="text-lg font-bold text-on-surface">${numPedidos}</p>
+        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Deudores</p>
+        <p class="text-lg font-bold" style="color: #991B1B;">${formatMoney(totalDeudoresGlobal)}</p>
+        <p class="text-[10px] font-semibold" style="color: #991B1B; opacity: 0.7;">${numDeudoresGlobal} deudores</p>
       </div>
     </div>
-    ${renderWhatsAppShareButtons()}
+    <button type="button" id="btn-compartir-semana" class="w-full h-11 mb-4 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #00A859, #007A3D); box-shadow: 0 2px 8px rgba(0,168,89,0.3);">
+      <span class="material-symbols-outlined text-[20px]">share</span>
+      Compartir por WhatsApp
+    </button>
   `;
 }
 
@@ -1951,13 +1852,21 @@ function renderPedidosSemanales() {
       (m) => m.tipo === 'pedido' && isSameWeek(getMovimientoFecha(m), currentWeek)
     )
   );
-  renderResumenSemanal(allWeekGroups);
+  const { totalMonto, numClientes, numPedidos } = computeSemanaResumenStats(allWeekGroups);
+
+  const allGroupsForDeudores = groupByCliente(movimientosData);
+  const numDeudoresGlobal = allGroupsForDeudores.filter((g) => g.debe > 0).length;
+  const totalDeudoresGlobal = allGroupsForDeudores.filter((g) => g.debe > 0).reduce((sum, g) => sum + g.debe, 0);
+
+  renderResumenSemanal(totalMonto, numClientes, numPedidos, numDeudoresGlobal, totalDeudoresGlobal);
+
   const groups = getFilteredPedidosSemanales();
   const allGroups = groupByCliente(movimientosData);
   const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
   if (movimientosData.length === 0) {
-    renderResumenSemanal([]);
+    renderResumenSemanal(0, 0, 0, 0, 0);
+    document.getElementById('resumen-semanal')?.classList.add('hidden');
     renderEmptyState(container, 'No hay pedidos registrados.');
     return;
   }
@@ -1971,7 +1880,7 @@ function renderPedidosSemanales() {
     .map((group) => {
       const cliente = escapeHtml(group.cliente);
       const saldo = saldoMap.get(normalizeClienteKey(group.cliente)) || 0;
-      const saldoColor = saldo > 0 ? '#DC2626' : saldo < 0 ? '#059669' : '#D97706';
+      const saldoColor = saldo > 0 ? '#DC2626' : saldo < 0 ? '#00A859' : '#00B2E3';
       const saldoLabel = saldo > 0 ? 'Debe' : saldo < 0 ? 'A favor' : 'Al dia';
 
       const pedidosHtml = group.movimientos
@@ -1980,9 +1889,9 @@ function renderPedidosSemanales() {
           const fotos = Array.isArray(mov.array_urls_fotos) ? mov.array_urls_fotos : [];
           let fotosHtml = '';
           if (mov.url_foto) {
-            fotosHtml = `<div class="flex gap-1.5 mt-1"><div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F5F5F4;"><a href="${escapeHtml(mov.url_foto)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(mov.url_foto)}" alt="Foto" loading="lazy"></a></div></div>`;
+            fotosHtml = `<div class="flex gap-1.5 mt-1"><div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F3F4F6;"><a href="${escapeHtml(mov.url_foto)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(mov.url_foto)}" alt="Foto" loading="lazy"></a></div></div>`;
           } else if (fotos.length) {
-            fotosHtml = `<div class="flex gap-1.5 mt-1">${fotos.slice(0, 4).map((url, i) => `<div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F5F5F4;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(url)}" alt="Foto ${i + 1}" loading="lazy"></a></div>`).join('')}${fotos.length > 4 ? `<div class="w-10 h-10 rounded-lg flex items-center justify-center text-[10px] font-bold" style="background:#FEF3C7;color:#92400E;">+${fotos.length - 4}</div>` : ''}</div>`;
+            fotosHtml = `<div class="flex gap-1.5 mt-1">${fotos.slice(0, 4).map((url, i) => `<div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F3F4F6;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(url)}" alt="Foto ${i + 1}" loading="lazy"></a></div>`).join('')}${fotos.length > 4 ? `<div class="w-10 h-10 rounded-lg flex items-center justify-center text-[10px] font-bold" style="background:#E0F7FB;color:#00667A;">+${fotos.length - 4}</div>` : ''}</div>`;
           }
 
           return `
@@ -1992,7 +1901,7 @@ function renderPedidosSemanales() {
                   ${desc ? `<p class="text-[12px] text-outline truncate">${desc}</p>` : ''}
                   <p class="text-[11px] text-outline">${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}</p>
                 </div>
-                <p class="text-[13px] font-bold shrink-0" style="color: #D97706;">${formatMoney(mov.monto)}</p>
+                <p class="text-[13px] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(mov.monto)}</p>
               </div>
               ${fotosHtml}
             </div>
@@ -2001,7 +1910,7 @@ function renderPedidosSemanales() {
         .join('');
 
       return `
-        <div class="rounded-2xl p-4 transition-all" style="background: #FFFBF5; border-left: 4px solid ${saldoColor}; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
+        <div class="rounded-2xl p-4 transition-all" style="background: #FFFFFF; border-left: 4px solid ${saldoColor}; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
           <div class="flex items-center gap-3 mb-2">
             <div class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                  style="background: ${saldoColor}18; color: ${saldoColor};">
@@ -2013,7 +1922,7 @@ function renderPedidosSemanales() {
             </div>
             <div class="text-right shrink-0">
               <p class="text-[11px] text-outline">Esta semana</p>
-              <p class="text-base font-bold" style="color: #D97706;">${formatMoney(group.totalPedido)}</p>
+              <p class="text-base font-bold" style="color: #00B2E3;">${formatMoney(group.totalPedido)}</p>
             </div>
           </div>
           <div class="mt-1">${pedidosHtml}</div>
@@ -2052,14 +1961,14 @@ function renderHistorialSemanas() {
       const total = semanaPedidos.reduce((s, p) => s + Number(p.monto), 0);
 
       const weekGroups = groupByCliente(semanaPedidos);
-      const { porCobrar, totalAlDia } = computeSemanaResumenStats(weekGroups);
 
       const clientsHtml = weekGroups
+        .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
         .map((c) => `
           <div class="flex items-center justify-between py-2 border-t border-outline-variant/10 first:border-0 first:pt-0">
             <div class="flex items-center gap-2 min-w-0">
               <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
-                   style="background: #FEF3C7; color: #92400E;">
+                   style="background: #E0F7FB; color: #00667A;">
                 ${getInitials(c.cliente)}
               </div>
               <div class="min-w-0">
@@ -2067,36 +1976,27 @@ function renderHistorialSemanas() {
                 <p class="text-[11px] text-outline">${c.movimientos.length} pedido${c.movimientos.length > 1 ? 's' : ''}</p>
               </div>
             </div>
-            <p class="text-[13px] font-bold shrink-0" style="color: #D97706;">${formatMoney(c.totalPedido)}</p>
+            <p class="text-[13px] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(c.totalPedido)}</p>
           </div>
         `)
         .join('');
 
-      const miniResumenHtml = `
-        <div class="grid grid-cols-2 gap-2 pt-3 mb-3">
-          <div class="rounded-xl p-2.5 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 3px solid #DC2626;">
-            <p class="text-[9px] font-bold uppercase tracking-wider" style="color: #991B1B;">Por cobrar</p>
-            <p class="text-sm font-bold" style="color: #991B1B;">${formatMoney(porCobrar)}</p>
-          </div>
-          <div class="rounded-xl p-2.5 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 3px solid #059669;">
-            <p class="text-[9px] font-bold uppercase tracking-wider" style="color: #065F46;">Al dia</p>
-            <p class="text-sm font-bold" style="color: #065F46;">${formatMoney(totalAlDia)}</p>
-          </div>
-        </div>
-        ${renderWhatsAppShareButtons({ weekKey, compact: true })}
-      `;
-
       return `
         <div class="mb-2">
-          <button type="button" class="semana-toggle w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-colors" style="background: #F5F5F4;" data-week="${weekKey}">
+          <button type="button" class="semana-toggle w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-colors" style="background: #F3F4F6;" data-week="${weekKey}">
             <div>
               <p class="text-[13px] font-bold text-on-surface">Semana del ${label}</p>
-              <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)}</p>
+              <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
             </div>
-            <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
+            <div class="flex items-center gap-2">
+              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full" style="background: #00A859;" data-share-week="${weekKey}">
+                <span class="material-symbols-outlined text-[14px]">share</span>
+                Compartir
+              </button>
+              <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
+            </div>
           </button>
           <div class="semana-pedidos hidden px-4 pb-3" data-week-content="${weekKey}">
-            ${miniResumenHtml}
             ${clientsHtml}
           </div>
         </div>
@@ -2198,13 +2098,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('filtro-semanal-nombre')?.addEventListener('input', debounce(renderPedidosSemanales, 250));
 
   document.getElementById('resumen-semanal')?.addEventListener('click', (event) => {
-    const btn = event.target.closest('[data-share-tipo]');
-    if (btn && !btn.dataset.shareWeek) shareResumenSemanal(btn.dataset.shareTipo);
+    if (event.target.closest('#btn-compartir-semana')) shareResumenSemanal();
   });
 
   document.getElementById('historial-semanas')?.addEventListener('click', (event) => {
-    const btn = event.target.closest('[data-share-tipo][data-share-week]');
-    if (btn) shareResumenSemana(btn.dataset.shareWeek, btn.dataset.shareTipo);
+    const btn = event.target.closest('.share-week-btn');
+    if (btn) shareResumenSemana(btn.dataset.shareWeek);
   });
 
   updatePedidoFechaInfo();
