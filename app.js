@@ -415,7 +415,7 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
     </div>
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #00A859;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al dia</p>
+      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al d\u00EDa</p>
       <p class="text-xl font-bold" style="color: #004d26;">${numAlDia}</p>
       <p class="text-[11px] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
     </div>
@@ -652,6 +652,82 @@ function setupClienteAutocomplete() {
 }
 
 // ============================================
+// Renombrar cliente (masivo)
+// ============================================
+function openRenameClienteGrupo(clienteNombre) {
+  const canonical = getCanonicalClienteNombre(clienteNombre);
+  const affected = movimientosData.filter(
+    (m) => normalizeClienteKey(m.cliente) === normalizeClienteKey(canonical)
+  );
+  if (affected.length === 0) return;
+
+  const bodyHtml = `
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nombre actual</label>
+        <input class="form-input w-full rounded-xl bg-surface-container-low px-4 py-3 text-[15px] text-on-surface" value="${escapeHtml(canonical)}" readonly type="text">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nuevo nombre</label>
+        <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="rename-nuevo-nombre" placeholder="Ej. Juan Perez" required type="text" autocomplete="off">
+      </div>
+      <div id="rename-aviso" class="px-3 py-2 rounded-xl text-[12px] font-semibold" style="background: #FEF3C7; color: #92400E;">
+        Se actualizaran <strong>${affected.length}</strong> movimientos.
+      </div>
+    </div>
+  `;
+
+  openModal('Renombrar: ' + escapeHtml(canonical), bodyHtml, async () => {
+    const nuevoNombre = document.getElementById('rename-nuevo-nombre')?.value.trim();
+    if (!nuevoNombre) {
+      alert('Escribe un nuevo nombre.');
+      return;
+    }
+
+    const nuevoNormalizado = normalizeClienteNombre(nuevoNombre);
+    if (normalizeClienteKey(nuevoNormalizado) === normalizeClienteKey(canonical)) {
+      closeModal();
+      return;
+    }
+
+    const existe = getUniqueClientes().find(
+      (c) => normalizeClienteKey(c) === normalizeClienteKey(nuevoNormalizado)
+    );
+
+    let targetName = nuevoNormalizado;
+    if (existe) {
+      targetName = getCanonicalClienteNombre(existe);
+      const confirmar = confirm(
+        escapeHtml(existe) + ' ya existe.\n\n' +
+        'Los ' + affected.length + ' movimientos de ' + escapeHtml(canonical) + ' se fusionaran con ' + escapeHtml(targetName) + '.\n\n' +
+        'Esto NO se puede deshacer.'
+      );
+      if (!confirmar) return;
+    }
+
+    const btn = document.getElementById('modal-editar-guardar');
+    try {
+      setButtonLoading(btn, true);
+      const { error } = await getSupabase()
+        .from('movimientos')
+        .update({ cliente: targetName })
+        .eq('cliente', canonical);
+
+      if (error) throw error;
+
+      closeModal();
+      await fetchMovimientos();
+      showSuccessToast('Cliente renombrado a "' + targetName + '".');
+    } catch (err) {
+      console.error(err);
+      alert(formatFriendlyError(err, 'Error al renombrar el cliente.'));
+    } finally {
+      setButtonLoading(btn, false);
+    }
+  });
+}
+
+// ============================================
 // Modal de edición
 // ============================================
 function openModal(title, bodyHtml, onSave) {
@@ -757,8 +833,8 @@ function openEditMovimiento(id) {
   const bodyHtml = `
     <div class="space-y-md">
       <div>
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Nombre del Cliente</label>
-        <input class="form-input w-full rounded-lg border-outline-variant bg-surface px-md py-sm" id="edit-mov-cliente" list="lista-clientes" type="text" value="${escapeHtml(mov.cliente)}">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Cliente</label>
+        <input class="form-input w-full rounded-lg border-outline-variant bg-surface-container-low px-md py-sm" type="text" value="${escapeHtml(mov.cliente)}" readonly>
       </div>
       <div>
         <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Monto ($)</label>
@@ -799,23 +875,15 @@ async function saveEditMovimiento(id) {
   const mov = movimientosData.find((m) => m.id === id);
   if (!mov) return;
 
-  const cliente = getCanonicalClienteNombre(
-    document.getElementById('edit-mov-cliente')?.value.trim() || ''
-  );
   const monto = parseFloat(document.getElementById('edit-mov-monto')?.value);
   const descripcion = document.getElementById('edit-mov-descripcion')?.value.trim();
 
-  if (!cliente) {
-    alert('El nombre del cliente es obligatorio.');
-    return;
-  }
   if (Number.isNaN(monto) || monto <= 0) {
-    alert('Ingrese un monto válido.');
+    alert('Ingrese un monto valido.');
     return;
   }
 
   const payload = {
-    cliente,
     monto,
     descripcion: descripcion || null,
   };
@@ -984,15 +1052,25 @@ function setupEditDelegation(containerId, type) {
   if (!container) return;
 
   container.addEventListener('click', async (event) => {
+    const renameBtn = event.target.closest('.btn-rename-cliente');
+    if (renameBtn) {
+      openRenameClienteGrupo(renameBtn.dataset.cliente);
+      return;
+    }
+
     const btnMov = event.target.closest('.btn-editar-movimiento');
     if (btnMov) {
-      openEditMovimiento(Number(btnMov.dataset.id));
+      const id = Number(btnMov.dataset.id);
+      if (Number.isNaN(id)) return;
+      openEditMovimiento(id);
       return;
     }
 
     const btnDelMov = event.target.closest('.btn-eliminar-movimiento');
     if (btnDelMov) {
       try {
+        const id = Number(btnDelMov.dataset.id);
+        if (Number.isNaN(id)) return;
         await deleteMovimiento(Number(btnDelMov.dataset.id));
       } catch (err) {
         console.error(err);
@@ -1003,14 +1081,18 @@ function setupEditDelegation(containerId, type) {
 
     const btnAsoc = event.target.closest('.btn-editar-asociado');
     if (btnAsoc) {
-      openEditAsociado(Number(btnAsoc.dataset.id));
+      const id = Number(btnAsoc.dataset.id);
+      if (Number.isNaN(id)) return;
+      openEditAsociado(id);
       return;
     }
 
     const btnDelAsoc = event.target.closest('.btn-eliminar-asociado');
     if (btnDelAsoc) {
       try {
-        await deleteAsociado(Number(btnDelAsoc.dataset.id));
+        const id = Number(btnDelAsoc.dataset.id);
+        if (Number.isNaN(id)) return;
+        await deleteAsociado(id);
       } catch (err) {
         console.error(err);
         alert(formatFriendlyError(err, 'Error al eliminar.'));
@@ -1253,6 +1335,9 @@ function renderClientes() {
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
                 <h4 class="font-semibold text-on-surface truncate text-[15px]">${cliente}</h4>
+                <button type="button" class="btn-rename-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Renombrar cliente">
+                  <span class="material-symbols-outlined text-[14px]" style="color: #92400E;">edit_square</span>
+                </button>
                 <div class="flex gap-3 mt-0.5 text-[11px] text-outline">
                   <span>Pedido: ${formatMoney(group.totalPedido)}</span>
                   <span>Pagado: ${formatMoney(group.totalPagado)}</span>
@@ -1277,6 +1362,8 @@ async function fetchMovimientos() {
   const container = document.getElementById('historial-clientes');
   if (!container) return;
 
+  const scrollY = window.scrollY;
+
   try {
     const { data, error } = await getSupabase()
       .from('movimientos')
@@ -1290,6 +1377,7 @@ async function fetchMovimientos() {
     renderClientes();
     renderPedidosSemanales();
     renderHistorialSemanas();
+    requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
   } catch (err) {
     console.error(err);
     renderEmptyState(container, 'Error al cargar movimientos.');
@@ -1881,7 +1969,7 @@ function renderPedidosSemanales() {
       const cliente = escapeHtml(group.cliente);
       const saldo = saldoMap.get(normalizeClienteKey(group.cliente)) || 0;
       const saldoColor = saldo > 0 ? '#DC2626' : saldo < 0 ? '#00A859' : '#00B2E3';
-      const saldoLabel = saldo > 0 ? 'Debe' : saldo < 0 ? 'A favor' : 'Al dia';
+      const saldoLabel = saldo > 0 ? 'Debe' : saldo < 0 ? 'A favor' : 'Al d\u00EDa';
 
       const pedidosHtml = group.movimientos
         .map((mov) => {
