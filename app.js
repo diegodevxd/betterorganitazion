@@ -9,11 +9,13 @@ const STORAGE_BUCKET = 'movimientos_fotos';
 let supabaseClient = null;
 let movimientosData = [];
 let asociadosData = [];
+let perfilesAdminData = {};
 let modoFormulario = 'pedido';
 let modalSaveHandler = null;
 let filtroSaldo = 'todos';
 let filtroAltasSaldo = 'todos';
 let filtroSemanalSaldo = 'todos';
+let filtroOrigen = 'todos';
 let switchViewFn = null;
 const previewUrls = new Map();
 
@@ -26,6 +28,20 @@ function getSupabase() {
 
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
   return supabaseClient;
+}
+
+async function fetchPerfilesAdmin() {
+  try {
+    const { data, error } = await getSupabase().from('perfiles').select('*');
+    if (error) throw error;
+    perfilesAdminData = {};
+    (data || []).forEach(function (p) {
+      if (p.id) perfilesAdminData[p.id] = p;
+    });
+  } catch (err) {
+    console.warn('Error al cargar perfiles para admin:', err);
+    perfilesAdminData = {};
+  }
 }
 
 // ============================================
@@ -1194,6 +1210,10 @@ function getFilteredMovimientos() {
     filtered = filtered.filter((mov) => clientes.has(mov.cliente));
   }
 
+  if (filtroOrigen === 'online') {
+    filtered = filtered.filter((mov) => mov.origen === 'online');
+  }
+
   return filtered;
 }
 
@@ -1239,6 +1259,7 @@ function renderMovimientoItem(mov) {
   const stripeColor = esPedido ? '#002855' : '#00A859';
   const badgeBg = esPedido ? '#E0F0FF' : '#D1FAE5';
   const badgeText = esPedido ? '#00667A' : '#004d26';
+  const esOnline = mov.origen === 'online';
   const fotos = Array.isArray(mov.array_urls_fotos) ? mov.array_urls_fotos : [];
   const descripcion = mov.descripcion ? escapeHtml(mov.descripcion) : '';
 
@@ -1269,9 +1290,17 @@ function renderMovimientoItem(mov) {
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
                   style="background: ${badgeBg}; color: ${badgeText};">${tipoLabel}</span>
+            ${esOnline ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #E0F7FB; color: #00667A;"><span class="material-symbols-outlined text-[12px]">language</span> Online</span>' : ''}
             <span class="font-semibold text-on-surface text-[15px]">${formatMoney(mov.monto)}</span>
           </div>
           ${descripcion ? `<p class="text-xs text-outline mt-1">${descripcion}</p>` : ''}
+          ${esOnline && mov.usuario_id && perfilesAdminData[mov.usuario_id] ? `
+            <div class="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+              ${perfilesAdminData[mov.usuario_id].telefono ? `<span class="text-[11px] font-semibold text-[#00667A] flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">call</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].telefono)}</span>` : ''}
+              ${perfilesAdminData[mov.usuario_id].nombre ? `<span class="text-[11px] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].nombre + ' ' + (perfilesAdminData[mov.usuario_id].apellidos || ''))}</span>` : ''}
+              ${perfilesAdminData[mov.usuario_id].ciudad ? `<span class="text-[11px] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">location_on</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].ciudad)}</span>` : ''}
+            </div>
+          ` : ''}
           <p class="text-[11px] text-outline mt-1">
             ${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}
           </p>
@@ -1373,6 +1402,7 @@ async function fetchMovimientos() {
     if (error) throw error;
 
     movimientosData = data || [];
+    await fetchPerfilesAdmin();
     refreshClienteDatalist();
     renderClientes();
     renderPedidosSemanales();
@@ -1692,6 +1722,7 @@ function updateChipCounts() {
   setCount('count-todos', total);
   setCount('count-deudores', deudores);
   setCount('count-al-dia', alDia);
+  setCount('count-online', movimientosData.filter((m) => m.origen === 'online').length);
 
   const allAsoc = asociadosData.length;
   const deudoresSet = new Set(groups.filter((g) => g.debe > 0).map((g) => g.cliente.toLowerCase()));
@@ -2173,7 +2204,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setFiltroFn: (v) => { filtroAltasSaldo = v; },
   });
 
-  setupChipFiltro('chips-saldo-clientes', renderClientes, (v) => { filtroSaldo = v; });
+  setupChipFiltro('chips-saldo-clientes', renderClientes, (v) => {
+    if (v === 'online') { filtroOrigen = 'online'; filtroSaldo = 'todos'; }
+    else { filtroSaldo = v; filtroOrigen = 'todos'; }
+  });
   setupChipFiltro('chips-saldo-altas', renderAsociados, (v) => { filtroAltasSaldo = v; });
   setupChipFiltro('chips-saldo-semanal', renderPedidosSemanales, (v) => { filtroSemanalSaldo = v; });
 
