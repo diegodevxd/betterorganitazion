@@ -1,3 +1,9 @@
 .DS_Store
 .env
 .env.*
+config.js
+usuarios/config.js
+.agents/
+.vscode/
+# usuarios/ es un repositorio git independiente (Bettermancera), no lo trackees aqui
+usuarios/

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bettermancera-v2';
+const CACHE_NAME = 'bettermancera-v3';
 const APP_SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (event) => {

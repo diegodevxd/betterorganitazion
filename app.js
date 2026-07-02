@@ -1,10 +1,16 @@
 // ============================================
-// CONFIGURACIÓN SUPABASE — editar aquí
-// URL del proyecto + publishable key (Dashboard → Settings → API)
+// CONFIGURACIÓN SUPABASE — leer desde config.js (no versionado)
+// Ver config.example.js para el formato.
 // ============================================
-const SUPABASE_URL = 'https://lijzftjgevwnjorpycxa.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_Y1v63ZdMakSGbx449TKpiA_cKNykbk2';
+const CONFIG = (typeof window !== 'undefined' && window.BM_CONFIG) || {};
+
+const SUPABASE_URL = CONFIG.SUPABASE_URL || '';
+const SUPABASE_KEY = CONFIG.SUPABASE_KEY || '';
 const STORAGE_BUCKET = 'movimientos_fotos';
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.warn('BetterMancera Admin: faltan variables de configuración. Revisa config.js.');
+}
 
 let supabaseClient = null;
 let movimientosData = [];
@@ -1234,7 +1240,10 @@ function groupByCliente(movimientos) {
     const group = groups.get(key);
     group.movimientos.push(mov);
 
-    if (mov.tipo === 'pedido') {
+    // Los pedidos online ya vienen pagados con Stripe antes de crearse
+    // (ver processCheckout en usuarios/tienda.js), asi que un pedido con
+    // estado 'pagado' no debe sumar deuda: ya esta saldado.
+    if (mov.tipo === 'pedido' && mov.estado !== 'pagado') {
       group.totalPedido += Number(mov.monto);
     } else if (mov.tipo === 'pago') {
       group.totalPagado += Number(mov.monto);
@@ -1260,6 +1269,7 @@ function renderMovimientoItem(mov) {
   const badgeBg = esPedido ? '#E0F0FF' : '#D1FAE5';
   const badgeText = esPedido ? '#00667A' : '#004d26';
   const esOnline = mov.origen === 'online';
+  const esPagado = mov.tipo === 'pedido' && mov.estado === 'pagado';
   const fotos = Array.isArray(mov.array_urls_fotos) ? mov.array_urls_fotos : [];
   const descripcion = mov.descripcion ? escapeHtml(mov.descripcion) : '';
 
@@ -1291,6 +1301,7 @@ function renderMovimientoItem(mov) {
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
                   style="background: ${badgeBg}; color: ${badgeText};">${tipoLabel}</span>
             ${esOnline ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #E0F7FB; color: #00667A;"><span class="material-symbols-outlined text-[12px]">language</span> Online</span>' : ''}
+            ${esPagado ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #D1FAE5; color: #047857;"><span class="material-symbols-outlined text-[12px]">check_circle</span> Pagado</span>' : ''}
             <span class="font-semibold text-on-surface text-[15px]">${formatMoney(mov.monto)}</span>
           </div>
           ${descripcion ? `<p class="text-xs text-outline mt-1">${descripcion}</p>` : ''}
