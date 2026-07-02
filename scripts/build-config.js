@@ -8,9 +8,11 @@ const required = [
 
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length) {
-  console.error('[build-config] Faltan variables de entorno:', missing.join(', '));
-  console.error('[build-config] Agrégalas en el dashboard de Vercel antes de hacer deploy.');
-  process.exit(1);
+  // No se aborta el build: si faltan las variables, se genera un config.js
+  // vacío para no tumbar el deploy completo. La app ya avisa en consola
+  // y no rompe la carga de la página, solo no conecta a Supabase.
+  console.warn('[build-config] Faltan variables de entorno:', missing.join(', '));
+  console.warn('[build-config] Agrégalas en Vercel → Project Settings → Environment Variables y vuelve a desplegar.');
 }
 
 const config = {
