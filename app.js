@@ -839,21 +839,17 @@ function openEditMovimiento(id) {
       </div>
     `;
   } else {
+    const fotosComprobantes = mov.url_foto ? [mov.url_foto, ...fotos] : fotos;
     fotosSection = `
       <div class="mt-md">
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Comprobante actual</label>
-        ${
-          mov.url_foto
-            ? `<div class="w-full h-32 rounded-lg overflow-hidden bg-surface-container-high mb-sm">
-                <a href="${escapeHtml(mov.url_foto)}" target="_blank" rel="noopener">
-                  <img class="w-full h-full object-cover" src="${escapeHtml(mov.url_foto)}" alt="Comprobante">
-                </a>
-              </div>`
-            : '<p class="text-outline font-label-md text-label-md mb-sm">Sin comprobante</p>'
-        }
-        <input accept="image/*" class="hidden" id="edit-foto-pago" type="file">
-        <div class="w-full h-24 border-2 border-dashed border-outline-variant rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors" data-default-label="Nuevo comprobante" id="dropzone-edit-pago">
-          <span class="font-label-md text-label-md text-outline">Nuevo comprobante</span>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Comprobantes actuales</label>
+        ${fotosComprobantes.length ? renderExistingPhotosHtml(fotosComprobantes, 'pago') : '<p class="text-outline font-label-md text-label-md mb-sm">Sin comprobante</p>'}
+        <label class="flex items-center gap-sm font-label-md text-label-md text-on-surface-variant mb-sm">
+          <input type="checkbox" id="edit-pago-reemplazar-fotos"> Reemplazar comprobantes anteriores
+        </label>
+        <input accept="image/*" class="hidden" id="edit-foto-pago" multiple type="file">
+        <div class="w-full h-24 border-2 border-dashed border-outline-variant rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors" data-default-label="Agregar comprobantes" id="dropzone-edit-pago">
+          <span class="font-label-md text-label-md text-outline">Agregar comprobantes</span>
         </div>
         <div class="preview-grid hidden" id="preview-modal"></div>
       </div>
@@ -897,7 +893,7 @@ function openEditMovimiento(id) {
   if (esPedido) {
     setupDropzone('dropzone-edit-pedido', 'edit-fotos-pedido', 'preview-modal', true);
   } else {
-    setupDropzone('dropzone-edit-pago', 'edit-foto-pago', 'preview-modal');
+    setupDropzone('dropzone-edit-pago', 'edit-foto-pago', 'preview-modal', true);
   }
 }
 
@@ -922,13 +918,21 @@ async function saveEditMovimiento(id) {
     payload.fecha = document.getElementById('edit-mov-fecha')?.value || null;
     payload.hora = document.getElementById('edit-mov-hora')?.value || null;
 
+    let arrayUrlsFotos = Array.isArray(mov.array_urls_fotos) ? [...mov.array_urls_fotos] : [];
+    if (mov.url_foto) arrayUrlsFotos = [mov.url_foto, ...arrayUrlsFotos];
     const fotoInput = document.getElementById('edit-foto-pago');
-    if (fotoInput?.files?.[0]) {
-      const compressed = await compressImage(fotoInput.files[0]);
-      payload.url_foto = await uploadToStorage(compressed);
-    } else {
-      payload.url_foto = mov.url_foto;
+    const reemplazar = document.getElementById('edit-pago-reemplazar-fotos')?.checked;
+
+    if (fotoInput?.files?.length) {
+      const newUrls = [];
+      for (const file of fotoInput.files) {
+        const compressed = await compressImage(file);
+        newUrls.push(await uploadToStorage(compressed));
+      }
+      arrayUrlsFotos = reemplazar ? newUrls : [...arrayUrlsFotos, ...newUrls];
     }
+    payload.array_urls_fotos = arrayUrlsFotos;
+    payload.url_foto = null;
   } else {
     let arrayUrlsFotos = Array.isArray(mov.array_urls_fotos) ? [...mov.array_urls_fotos] : [];
     const fotosInput = document.getElementById('edit-fotos-pedido');
@@ -1524,11 +1528,14 @@ async function handlePagoSubmit(event) {
   if (btn) setButtonLoading(btn, true);
 
   try {
-    let urlFoto = null;
+    const arrayUrlsFotos = [];
 
-    if (fotoInput?.files?.[0]) {
-      const compressed = await compressImage(fotoInput.files[0]);
-      urlFoto = await uploadToStorage(compressed);
+    if (fotoInput?.files?.length) {
+      for (const file of fotoInput.files) {
+        const compressed = await compressImage(file);
+        const url = await uploadToStorage(compressed);
+        arrayUrlsFotos.push(url);
+      }
     }
 
     const { error } = await getSupabase().from('movimientos').insert({
@@ -1536,7 +1543,7 @@ async function handlePagoSubmit(event) {
       tipo: 'pago',
       monto,
       descripcion: descripcion || null,
-      url_foto: urlFoto,
+      array_urls_fotos: arrayUrlsFotos,
       fecha,
       hora,
     });
@@ -1546,7 +1553,7 @@ async function handlePagoSubmit(event) {
     document.getElementById('form-pago')?.reset();
     autofillPagoFechaHora();
     if (fotoInput) fotoInput.value = '';
-    clearFilePreview('preview-pago', 'dropzone-pago', 'Subir Comprobante');
+    clearFilePreview('preview-pago', 'dropzone-pago', 'Subir Comprobantes');
 
     await fetchMovimientos();
     showSuccessToast();
@@ -2193,7 +2200,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setModoFormulario('pedido');
 
   setupDropzone('dropzone-pedido', 'input-fotos-pedido', 'preview-pedido', true);
-  setupDropzone('dropzone-pago', 'input-foto-pago', 'preview-pago');
+  setupDropzone('dropzone-pago', 'input-foto-pago', 'preview-pago', true);
   setupDropzone('dropzone-ine', 'input-foto-ine', 'preview-ine');
 
   setupDownloadDelegation('historial-clientes');
