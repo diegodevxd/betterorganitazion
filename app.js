@@ -32,7 +32,15 @@ function getSupabase() {
     throw new Error('Supabase no se cargó. Revisa tu conexión o recarga la página.');
   }
 
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  // persistSession: false evita que el panel admin herede una sesión de
+  // cliente logueado en la tienda online (usuarios/tienda.js) guardada en
+  // localStorage del mismo navegador. Si la hereda, Supabase lo trata como
+  // "authenticated" y la RLS "usuario ve sus movimientos" (auth.uid() =
+  // usuario_id) lo limita a ver solo los pedidos de ESE cliente, en vez de
+  // todos (política "anon lee movimientos" using(true)).
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   return supabaseClient;
 }
 
@@ -1881,14 +1889,12 @@ function computeSemanaResumenStats(groups) {
 }
 
 function buildResumenSemanalText(groups, weekLabel, extraHeaderLine) {
-  const { saldoMap, totalMonto, numClientes, numPedidos } = computeSemanaResumenStats(groups);
+  const { totalMonto, numClientes, numPedidos } = computeSemanaResumenStats(groups);
 
   const allGroups = groupByCliente(movimientosData);
-  const globalSaldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
-  const numDeudoresGlobal = allGroups.filter((g) => g.debe > 0).length;
-  const totalDeudoresGlobal = allGroups.filter((g) => g.debe > 0).reduce((s, g) => s + g.debe, 0);
-
-  const deudores = groups.filter((g) => (saldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0);
+  const deudoresGenerales = allGroups.filter((g) => g.debe > 0);
+  const numDeudoresGlobal = deudoresGenerales.length;
+  const totalDeudoresGlobal = deudoresGenerales.reduce((s, g) => s + g.debe, 0);
 
   let text = `*Pedidos Betterorden*\n${weekLabel}\n`;
   if (extraHeaderLine) text += `${extraHeaderLine}\n`;
@@ -1896,14 +1902,13 @@ function buildResumenSemanalText(groups, weekLabel, extraHeaderLine) {
   text += `Clientes: ${numClientes}  |  Pedidos: ${numPedidos}\n`;
   text += `\nDeudores totales: ${numDeudoresGlobal}  |  ${formatMoney(totalDeudoresGlobal)}\n`;
 
-  if (deudores.length > 0) {
+  if (deudoresGenerales.length > 0) {
     text += `\n`;
-    deudores
+    deudoresGenerales
       .slice()
       .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'))
       .forEach((g) => {
-        const debe = globalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0;
-        text += `- ${g.cliente}: debe ${formatMoney(debe)}\n`;
+        text += `- ${g.cliente}: debe ${formatMoney(g.debe)}\n`;
       });
   }
 
@@ -1918,8 +1923,9 @@ function shareResumenSemanal() {
     )
   );
 
-  if (!groups.length) {
-    alert('No hay pedidos esta semana para compartir.');
+  const hayDeudoresGenerales = groupByCliente(movimientosData).some((g) => g.debe > 0);
+  if (!groups.length && !hayDeudoresGenerales) {
+    alert('No hay pedidos esta semana ni deudores para compartir.');
     return;
   }
 
@@ -1935,8 +1941,9 @@ function shareResumenSemana(weekKey) {
     )
   );
 
-  if (!groups.length) {
-    alert('No hay pedidos en esta semana para compartir.');
+  const hayDeudoresGenerales = groupByCliente(movimientosData).some((g) => g.debe > 0);
+  if (!groups.length && !hayDeudoresGenerales) {
+    alert('No hay pedidos en esta semana ni deudores para compartir.');
     return;
   }
 
