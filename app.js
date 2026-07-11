@@ -1483,15 +1483,35 @@ async function crearCollageDesdeBlobs(blobs) {
 
   imgs.forEach(({ objUrl }) => URL.revokeObjectURL(objUrl));
 
-  const blob = await new Promise((resolve) => {
+  const blob = await canvasToJpegBlob(canvas);
+  if (!blob) return null;
+  return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
+}
+
+// Exporta un canvas a JPEG de forma robusta. En algunos navegadores de celular
+// (WebView) canvas.toBlob no existe o devuelve null; por eso caemos a
+// toDataURL, que es más confiable en móvil.
+async function canvasToJpegBlob(canvas) {
+  const viaToBlob = await new Promise((resolve) => {
+    if (typeof canvas.toBlob !== 'function') {
+      resolve(null);
+      return;
+    }
     try {
       canvas.toBlob(resolve, 'image/jpeg', 0.8);
     } catch {
       resolve(null);
     }
   });
-  if (!blob) return null;
-  return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
+  if (viaToBlob) return viaToBlob;
+
+  try {
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    const res = await fetch(dataUrl);
+    return await res.blob();
+  } catch {
+    return null;
+  }
 }
 
 async function shareClienteWhatsApp(clienteNombre) {
