@@ -1383,35 +1383,47 @@ function getFotosPedidosCliente(clienteNombre, maxFotos = 10) {
   return urls.slice(0, maxFotos);
 }
 
-// Junta varias fotos en una sola imagen (cuadrícula de miniaturas) para que
-// al compartir por WhatsApp llegue un solo archivo en vez de muchos.
-async function crearCollageFotos(urls) {
-  const cargadas = await Promise.all(
-    urls.map(
-      (url) =>
+// Descarga las URLs y devuelve sus blobs (los que se puedan descargar).
+async function descargarFotosBlobs(urls) {
+  const blobs = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const r = await fetch(url);
+        const blob = await r.blob();
+        return blob && blob.size ? blob : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return blobs.filter(Boolean);
+}
+
+// Junta varias fotos (ya descargadas como blobs) en una sola imagen
+// (cuadrícula de miniaturas). Devuelve un File, o null si no se pudo.
+async function crearCollageDesdeBlobs(blobs) {
+  if (!blobs.length) return null;
+
+  const imgs = await Promise.all(
+    blobs.map(
+      (blob) =>
         new Promise((resolve) => {
-          fetch(url)
-            .then((r) => r.blob())
-            .then((blob) => {
-              const objUrl = URL.createObjectURL(blob);
-              const img = new Image();
-              img.onload = () => resolve({ img, objUrl });
-              img.onerror = () => {
-                URL.revokeObjectURL(objUrl);
-                resolve(null);
-              };
-              img.src = objUrl;
-            })
-            .catch(() => resolve(null));
+          const objUrl = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => resolve({ img, objUrl });
+          img.onerror = () => {
+            URL.revokeObjectURL(objUrl);
+            resolve(null);
+          };
+          img.src = objUrl;
         })
     )
-  );
+  ).then((arr) => arr.filter(Boolean));
 
-  const imgs = cargadas.filter(Boolean);
   if (!imgs.length) return null;
 
-  const celda = 500;
-  const gap = 10;
+  const celda = 400;
+  const gap = 8;
   const cols = Math.ceil(Math.sqrt(imgs.length));
   const rows = Math.ceil(imgs.length / cols);
 
@@ -1445,7 +1457,13 @@ async function crearCollageFotos(urls) {
 
   imgs.forEach(({ objUrl }) => URL.revokeObjectURL(objUrl));
 
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  const blob = await new Promise((resolve) => {
+    try {
+      canvas.toBlob(resolve, 'image/jpeg', 0.8);
+    } catch {
+      resolve(null);
+    }
+  });
   if (!blob) return null;
   return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
 }
@@ -1462,16 +1480,29 @@ async function shareClienteWhatsApp(clienteNombre) {
 
   // El link wa.me solo soporta texto. Para incluir las fotos usamos el share
   // nativo del dispositivo (funciona en celular, donde se usa esta app como
-  // PWA). Todas las fotos se juntan en una sola imagen de miniaturas para no
-  // llenar el chat. Si no hay soporte o falla, se comparte solo el texto.
+  // PWA). Intentamos juntarlas en una sola imagen de miniaturas para no llenar
+  // el chat; si el collage falla, mandamos las fotos individuales; y si el
+  // dispositivo no soporta compartir archivos, se comparte solo el texto.
   if (fotoUrls.length && navigator.share && navigator.canShare) {
     try {
-      const collage = await crearCollageFotos(fotoUrls);
-      const files = collage ? [collage] : [];
+      const blobs = await descargarFotosBlobs(fotoUrls);
 
-      if (files.length && navigator.canShare({ files })) {
-        await navigator.share({ text, files });
-        return;
+      if (blobs.length) {
+        let files = [];
+        const collage = await crearCollageDesdeBlobs(blobs).catch(() => null);
+
+        if (collage) {
+          files = [collage];
+        } else {
+          files = blobs.map(
+            (b, i) => new File([b], `foto-${i + 1}.jpg`, { type: b.type || 'image/jpeg' })
+          );
+        }
+
+        if (files.length && navigator.canShare({ files })) {
+          await navigator.share({ text, files });
+          return;
+        }
       }
     } catch (err) {
       if (err?.name === 'AbortError') return;
