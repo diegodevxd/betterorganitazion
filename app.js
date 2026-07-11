@@ -1092,6 +1092,12 @@ function setupEditDelegation(containerId, type) {
       return;
     }
 
+    const shareClienteBtn = event.target.closest('.btn-compartir-cliente');
+    if (shareClienteBtn) {
+      shareClienteWhatsApp(shareClienteBtn.dataset.cliente);
+      return;
+    }
+
     const btnMov = event.target.closest('.btn-editar-movimiento');
     if (btnMov) {
       const id = Number(btnMov.dataset.id);
@@ -1343,6 +1349,28 @@ function renderMovimientoItem(mov) {
   `;
 }
 
+function buildClienteWhatsAppText(group) {
+  const debeLabel = group.debe > 0 ? 'Debe' : group.debe < 0 ? 'Saldo a favor' : 'Al día';
+
+  let text = `*Betterorden*\n${group.cliente}\n\n`;
+  text += `Pedido total: ${formatMoney(group.totalPedido)}\n`;
+  text += `Pagado: ${formatMoney(group.totalPagado)}\n`;
+  text += `${debeLabel}: ${formatMoney(Math.abs(group.debe))}\n`;
+
+  return text.trim();
+}
+
+function shareClienteWhatsApp(clienteNombre) {
+  if (!clienteNombre) return;
+  const group = groupByCliente(movimientosData).find(
+    (g) => normalizeClienteKey(g.cliente) === normalizeClienteKey(clienteNombre)
+  );
+  if (!group) return;
+
+  const text = buildClienteWhatsAppText(group);
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
 function renderClientes() {
   const container = document.getElementById('historial-clientes');
   if (!container) return;
@@ -1389,6 +1417,9 @@ function renderClientes() {
                 <h4 class="font-semibold text-on-surface truncate text-[15px]">${cliente}</h4>
                 <button type="button" class="btn-rename-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Renombrar cliente">
                   <span class="material-symbols-outlined text-[14px]" style="color: #92400E;">edit_square</span>
+                </button>
+                <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Compartir por WhatsApp">
+                  <span class="material-symbols-outlined text-[14px]" style="color: #00A859;">share</span>
                 </button>
                 <div class="flex gap-3 mt-0.5 text-[11px] text-outline">
                   <span>Pedido: ${formatMoney(group.totalPedido)}</span>
