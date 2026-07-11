@@ -1357,28 +1357,54 @@ function renderMovimientoItem(mov) {
   `;
 }
 
-function buildClienteWhatsAppText(group) {
-  const debeLabel = group.debe > 0 ? 'Debe' : group.debe < 0 ? 'Saldo a favor' : 'Al día';
+// Devuelve los movimientos del "ciclo actual" del cliente: los posteriores a
+// la última vez que su saldo quedó en cero o a favor. Así, cuando el cliente
+// ya se puso al día, el ciclo "se reinicia" y al compartir no se arrastran
+// fotos ni deudas de semanas o adeudos ya saldados. Si está al día ahora
+// mismo, devuelve una lista vacía.
+function getMovimientosCicloActual(clienteNombre) {
+  const key = normalizeClienteKey(clienteNombre);
+  const movs = movimientosData
+    .filter((m) => normalizeClienteKey(m.cliente) === key)
+    .slice()
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
+  let balance = 0;
+  let inicio = 0;
+  movs.forEach((m, i) => {
+    // Los pedidos ya pagados (online con Stripe) no suman deuda.
+    if (m.tipo === 'pedido' && m.estado !== 'pagado') balance += Number(m.monto);
+    else if (m.tipo === 'pago') balance -= Number(m.monto);
+    // Cada vez que el saldo llega a cero (o a favor), se cierra el ciclo.
+    if (balance <= 0.005) inicio = i + 1;
+  });
+
+  return movs.slice(inicio);
+}
+
+function buildClienteWhatsAppText(group) {
   let text = `*Betterorden*\n${group.cliente}\n\n`;
-  text += `Pedido total: ${formatMoney(group.totalPedido)}\n`;
-  text += `Pagado: ${formatMoney(group.totalPagado)}\n`;
-  text += `${debeLabel}: ${formatMoney(Math.abs(group.debe))}\n`;
+
+  if (group.debe > 0.005) {
+    text += `*Debe: ${formatMoney(group.debe)}*\n`;
+  } else if (group.debe < -0.005) {
+    text += `✅ Al día (saldo a favor: ${formatMoney(Math.abs(group.debe))})\n`;
+  } else {
+    text += `✅ Al día. Sin adeudos.\n`;
+  }
 
   return text.trim();
 }
 
-function getFotosPedidosCliente(clienteNombre, maxFotos = 10) {
-  const key = normalizeClienteKey(clienteNombre);
+function getFotosPedidosCliente(clienteNombre, maxFotos = 12) {
   const urls = [];
 
-  // Incluimos tanto fotos de pedidos (productos) como de pagos (comprobantes).
-  movimientosData
-    .filter((m) => normalizeClienteKey(m.cliente) === key)
-    .forEach((m) => {
-      if (m.url_foto) urls.push(m.url_foto);
-      if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
-    });
+  // Solo fotos del ciclo actual (deuda vigente). Si el cliente está al día,
+  // el ciclo está vacío y no se comparte ninguna foto.
+  getMovimientosCicloActual(clienteNombre).forEach((m) => {
+    if (m.url_foto) urls.push(m.url_foto);
+    if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
+  });
 
   return urls.slice(0, maxFotos);
 }
