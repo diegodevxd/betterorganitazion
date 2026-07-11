@@ -1383,6 +1383,73 @@ function getFotosPedidosCliente(clienteNombre, maxFotos = 10) {
   return urls.slice(0, maxFotos);
 }
 
+// Junta varias fotos en una sola imagen (cuadrícula de miniaturas) para que
+// al compartir por WhatsApp llegue un solo archivo en vez de muchos.
+async function crearCollageFotos(urls) {
+  const cargadas = await Promise.all(
+    urls.map(
+      (url) =>
+        new Promise((resolve) => {
+          fetch(url)
+            .then((r) => r.blob())
+            .then((blob) => {
+              const objUrl = URL.createObjectURL(blob);
+              const img = new Image();
+              img.onload = () => resolve({ img, objUrl });
+              img.onerror = () => {
+                URL.revokeObjectURL(objUrl);
+                resolve(null);
+              };
+              img.src = objUrl;
+            })
+            .catch(() => resolve(null));
+        })
+    )
+  );
+
+  const imgs = cargadas.filter(Boolean);
+  if (!imgs.length) return null;
+
+  const celda = 500;
+  const gap = 10;
+  const cols = Math.ceil(Math.sqrt(imgs.length));
+  const rows = Math.ceil(imgs.length / cols);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = cols * celda + (cols + 1) * gap;
+  canvas.height = rows * celda + (rows + 1) * gap;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  imgs.forEach(({ img }, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = gap + col * (celda + gap);
+    const y = gap + row * (celda + gap);
+
+    // Recorte tipo "cover": llena la celda sin deformar la imagen.
+    const escala = Math.max(celda / img.width, celda / img.height);
+    const dw = img.width * escala;
+    const dh = img.height * escala;
+    const dx = x + (celda - dw) / 2;
+    const dy = y + (celda - dh) / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, celda, celda);
+    ctx.clip();
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.restore();
+  });
+
+  imgs.forEach(({ objUrl }) => URL.revokeObjectURL(objUrl));
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  if (!blob) return null;
+  return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
+}
+
 async function shareClienteWhatsApp(clienteNombre) {
   if (!clienteNombre) return;
   const group = groupByCliente(movimientosData).find(
@@ -1393,21 +1460,16 @@ async function shareClienteWhatsApp(clienteNombre) {
   const text = buildClienteWhatsAppText(group);
   const fotoUrls = getFotosPedidosCliente(clienteNombre);
 
-  // El link wa.me solo soporta texto. Para incluir las fotos del pedido
-  // usamos el share nativo del dispositivo (funciona en celular, donde
-  // se usa esta app como PWA); si no está disponible o falla, se
-  // comparte solo el texto igual que antes.
+  // El link wa.me solo soporta texto. Para incluir las fotos usamos el share
+  // nativo del dispositivo (funciona en celular, donde se usa esta app como
+  // PWA). Todas las fotos se juntan en una sola imagen de miniaturas para no
+  // llenar el chat. Si no hay soporte o falla, se comparte solo el texto.
   if (fotoUrls.length && navigator.share && navigator.canShare) {
     try {
-      const files = await Promise.all(
-        fotoUrls.map(async (url, i) => {
-          const response = await fetch(url);
-          const blob = await response.blob();
-          return new File([blob], `pedido-${i + 1}.jpg`, { type: blob.type || 'image/jpeg' });
-        })
-      );
+      const collage = await crearCollageFotos(fotoUrls);
+      const files = collage ? [collage] : [];
 
-      if (navigator.canShare({ files })) {
+      if (files.length && navigator.canShare({ files })) {
         await navigator.share({ text, files });
         return;
       }
