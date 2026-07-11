@@ -1372,8 +1372,9 @@ function getFotosPedidosCliente(clienteNombre, maxFotos = 10) {
   const key = normalizeClienteKey(clienteNombre);
   const urls = [];
 
+  // Incluimos tanto fotos de pedidos (productos) como de pagos (comprobantes).
   movimientosData
-    .filter((m) => m.tipo === 'pedido' && normalizeClienteKey(m.cliente) === key)
+    .filter((m) => normalizeClienteKey(m.cliente) === key)
     .forEach((m) => {
       if (m.url_foto) urls.push(m.url_foto);
       if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
