@@ -1094,7 +1094,15 @@ function setupEditDelegation(containerId, type) {
 
     const shareClienteBtn = event.target.closest('.btn-compartir-cliente');
     if (shareClienteBtn) {
-      shareClienteWhatsApp(shareClienteBtn.dataset.cliente);
+      const icon = shareClienteBtn.innerHTML;
+      shareClienteBtn.disabled = true;
+      shareClienteBtn.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>';
+      try {
+        await shareClienteWhatsApp(shareClienteBtn.dataset.cliente);
+      } finally {
+        shareClienteBtn.disabled = false;
+        shareClienteBtn.innerHTML = icon;
+      }
       return;
     }
 
@@ -1360,7 +1368,21 @@ function buildClienteWhatsAppText(group) {
   return text.trim();
 }
 
-function shareClienteWhatsApp(clienteNombre) {
+function getFotosPedidosCliente(clienteNombre, maxFotos = 10) {
+  const key = normalizeClienteKey(clienteNombre);
+  const urls = [];
+
+  movimientosData
+    .filter((m) => m.tipo === 'pedido' && normalizeClienteKey(m.cliente) === key)
+    .forEach((m) => {
+      if (m.url_foto) urls.push(m.url_foto);
+      if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
+    });
+
+  return urls.slice(0, maxFotos);
+}
+
+async function shareClienteWhatsApp(clienteNombre) {
   if (!clienteNombre) return;
   const group = groupByCliente(movimientosData).find(
     (g) => normalizeClienteKey(g.cliente) === normalizeClienteKey(clienteNombre)
@@ -1368,6 +1390,32 @@ function shareClienteWhatsApp(clienteNombre) {
   if (!group) return;
 
   const text = buildClienteWhatsAppText(group);
+  const fotoUrls = getFotosPedidosCliente(clienteNombre);
+
+  // El link wa.me solo soporta texto. Para incluir las fotos del pedido
+  // usamos el share nativo del dispositivo (funciona en celular, donde
+  // se usa esta app como PWA); si no está disponible o falla, se
+  // comparte solo el texto igual que antes.
+  if (fotoUrls.length && navigator.share && navigator.canShare) {
+    try {
+      const files = await Promise.all(
+        fotoUrls.map(async (url, i) => {
+          const response = await fetch(url);
+          const blob = await response.blob();
+          return new File([blob], `pedido-${i + 1}.jpg`, { type: blob.type || 'image/jpeg' });
+        })
+      );
+
+      if (navigator.canShare({ files })) {
+        await navigator.share({ text, files });
+        return;
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      console.warn('No se pudo compartir con fotos, se comparte solo el texto:', err);
+    }
+  }
+
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }
 
