@@ -32,16 +32,212 @@ function getSupabase() {
     throw new Error('Supabase no se cargó. Revisa tu conexión o recarga la página.');
   }
 
-  // persistSession: false evita que el panel admin herede una sesión de
-  // cliente logueado en la tienda online (usuarios/tienda.js) guardada en
-  // localStorage del mismo navegador. Si la hereda, Supabase lo trata como
-  // "authenticated" y la RLS "usuario ve sus movimientos" (auth.uid() =
-  // usuario_id) lo limita a ver solo los pedidos de ESE cliente, en vez de
-  // todos (política "anon lee movimientos" using(true)).
+  // Se usa storageKey: 'bm-admin-auth' con persistSession: true y autoRefreshToken: true.
+  // El storageKey propio es indispensable para que el panel administrativo no herede
+  // ni interfiera con la sesión de un cliente logueado en la tienda online (usuarios/tienda.js)
+  // guardada bajo la clave default en el localStorage del mismo origen.
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      storageKey: 'bm-admin-auth',
+    },
   });
   return supabaseClient;
+}
+
+// ============================================
+// Autenticación de Administrador (Paso 5)
+// ============================================
+let isAdminAuthenticated = false;
+
+function showLoginScreen(errorMessage = '') {
+  isAdminAuthenticated = false;
+  const pantallaLogin = document.getElementById('pantalla-login');
+  if (pantallaLogin) pantallaLogin.classList.remove('hidden');
+
+  const errorEl = document.getElementById('login-error');
+  const errorTextEl = document.getElementById('login-error-texto');
+  if (errorEl && errorTextEl) {
+    if (errorMessage) {
+      errorTextEl.textContent = errorMessage;
+      errorEl.classList.remove('hidden');
+    } else {
+      errorEl.classList.add('hidden');
+      errorTextEl.textContent = '';
+    }
+  }
+
+  const passInput = document.getElementById('login-password');
+  if (passInput) passInput.value = '';
+}
+
+function hideLoginScreen() {
+  const pantallaLogin = document.getElementById('pantalla-login');
+  if (pantallaLogin) pantallaLogin.classList.add('hidden');
+
+  const errorEl = document.getElementById('login-error');
+  if (errorEl) errorEl.classList.add('hidden');
+}
+
+function setLoginError(message) {
+  const errorEl = document.getElementById('login-error');
+  const errorTextEl = document.getElementById('login-error-texto');
+  if (!errorEl || !errorTextEl) return;
+
+  if (message) {
+    errorTextEl.textContent = message;
+    errorEl.classList.remove('hidden');
+  } else {
+    errorEl.classList.add('hidden');
+    errorTextEl.textContent = '';
+  }
+}
+
+async function verifyEsAdmin() {
+  try {
+    const { data, error } = await getSupabase().rpc('es_admin');
+    if (error) {
+      console.warn('verifyEsAdmin rpc error:', error);
+      return false;
+    }
+    return Boolean(data);
+  } catch (err) {
+    console.error('verifyEsAdmin failed:', err);
+    return false;
+  }
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+
+  const emailInput = document.getElementById('login-email');
+  const passwordInput = document.getElementById('login-password');
+  const btnSubmit = document.getElementById('btn-login-submit');
+
+  const email = emailInput?.value.trim() || '';
+  const password = passwordInput?.value || '';
+
+  if (!email || !password) {
+    setLoginError('Ingresa tu correo y contraseña.');
+    return;
+  }
+
+  setLoginError('');
+  if (btnSubmit) setButtonLoading(btnSubmit, true, 'Verificando...');
+
+  try {
+    const { data, error } = await getSupabase().auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      const msg = error.message || '';
+      if (/invalid login credentials|invalid credentials/i.test(msg)) {
+        setLoginError('Correo o contraseña incorrectos.');
+      } else if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+        setLoginError('Sin conexión. Revisa tu internet e intenta de nuevo.');
+      } else {
+        setLoginError(formatFriendlyError(error, 'Error al iniciar sesión.'));
+      }
+      return;
+    }
+
+    if (!data?.user) {
+      setLoginError('No se pudo verificar el usuario.');
+      return;
+    }
+
+    // Verificar si el usuario autenticado tiene rol admin registrado
+    const esAdmin = await verifyEsAdmin();
+    if (!esAdmin) {
+      await getSupabase().auth.signOut();
+      setLoginError('Esta cuenta no tiene acceso al panel.');
+      return;
+    }
+
+    // Inicio de sesión exitoso y verificado como admin
+    await onAdminAuthenticated();
+  } catch (err) {
+    console.error('handleLoginSubmit error:', err);
+    setLoginError(formatFriendlyError(err, 'Error inesperado al entrar.'));
+  } finally {
+    if (btnSubmit) setButtonLoading(btnSubmit, false);
+  }
+}
+
+async function handleLogout() {
+  try {
+    await getSupabase().auth.signOut();
+  } catch (err) {
+    console.warn('signOut error:', err);
+  } finally {
+    showLoginScreen();
+    showSuccessToast('Sesión cerrada');
+  }
+}
+
+async function onAdminAuthenticated() {
+  isAdminAuthenticated = true;
+  hideLoginScreen();
+
+  try {
+    await Promise.all([fetchMovimientos(), fetchAsociados()]);
+  } catch (err) {
+    console.error('Error al cargar datos de panel tras login:', err);
+  }
+}
+
+async function checkInitialAdminSession() {
+  try {
+    const { data, error } = await getSupabase().auth.getSession();
+    if (error || !data?.session?.user) {
+      showLoginScreen();
+      return;
+    }
+
+    // Verificar si la sesión existente pertenece a un administrador
+    const esAdmin = await verifyEsAdmin();
+    if (!esAdmin) {
+      await getSupabase().auth.signOut();
+      showLoginScreen('Esta cuenta no tiene acceso al panel.');
+      return;
+    }
+
+    await onAdminAuthenticated();
+  } catch (err) {
+    console.error('checkInitialAdminSession error:', err);
+    showLoginScreen();
+  }
+}
+
+function setupAuthListeners() {
+  document.getElementById('form-login')?.addEventListener('submit', handleLoginSubmit);
+  document.getElementById('btn-logout-drawer')?.addEventListener('click', handleLogout);
+  document.getElementById('btn-logout-header')?.addEventListener('click', handleLogout);
+
+  try {
+    getSupabase().auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        if (isAdminAuthenticated) {
+          showLoginScreen();
+        }
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (!isAdminAuthenticated && session?.user) {
+          const esAdmin = await verifyEsAdmin();
+          if (esAdmin) {
+            await onAdminAuthenticated();
+          } else {
+            await getSupabase().auth.signOut();
+            showLoginScreen('Esta cuenta no tiene acceso al panel.');
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('onAuthStateChange listener error:', err);
+  }
 }
 
 async function fetchPerfilesAdmin() {
@@ -3800,11 +3996,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   updatePedidoFechaInfo();
+  setupAuthListeners();
 
   try {
     getSupabase();
-    fetchMovimientos();
-    fetchAsociados();
+    checkInitialAdminSession();
   } catch (err) {
     console.error(err);
     alert(formatFriendlyError(err, 'Error al conectar con Supabase.'));
