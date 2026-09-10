@@ -451,15 +451,257 @@ function renderEmptyState(container, message) {
   `;
 }
 
+// ============================================
+// Gráficos (Chart.js 4 UMD)
+// ============================================
+let chartHistoricoInstance = null;
+let chartBarrasInstance = null;
+let chartDonaInstance = null;
+
+function destroyCharts() {
+  if (chartHistoricoInstance) {
+    try { chartHistoricoInstance.destroy(); } catch {}
+    chartHistoricoInstance = null;
+  }
+  if (chartBarrasInstance) {
+    try { chartBarrasInstance.destroy(); } catch {}
+    chartBarrasInstance = null;
+  }
+  if (chartDonaInstance) {
+    try { chartDonaInstance.destroy(); } catch {}
+    chartDonaInstance = null;
+  }
+}
+
+function updateCharts() {
+  if (typeof Chart === 'undefined') return;
+
+  const canvasHistorico = document.getElementById('chart-historico');
+  const canvasBarras = document.getElementById('chart-barras-semanal');
+  const canvasDona = document.getElementById('chart-dona-cartera');
+
+  if (!canvasHistorico || !canvasBarras || !canvasDona) return;
+
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const animationDuration = prefersReducedMotion ? 0 : 400;
+
+  // --- 1. Calcular datos de las últimas 8 semanas ---
+  const { inicio: currInicio } = getWeekRange();
+  const weekRanges = [];
+  for (let i = 7; i >= 0; i--) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    weekRanges.push({ inicio: wStart, fin: wEnd });
+  }
+
+  const labelsSemanas = weekRanges.map((w) => `${formatDateShort(w.inicio)}`);
+  const datosVentasSemanales = [];
+  const datosCobradoSemanales = [];
+  const datosCobrablesSemanales = [];
+
+  weekRanges.forEach((w) => {
+    let ventasSemana = 0;
+    let cobradoSemana = 0;
+    let cobrableSemana = 0;
+
+    movimientosData.forEach((m) => {
+      const fechaStr = getMovimientoFecha(m);
+      if (isSameWeek(fechaStr, w)) {
+        const monto = Number(m.monto) || 0;
+        if (m.tipo === 'pedido') {
+          ventasSemana += monto;
+          if (m.estado !== 'pagado') {
+            cobrableSemana += monto;
+          }
+        } else if (m.tipo === 'pago') {
+          cobradoSemana += monto;
+        }
+      }
+    });
+
+    datosVentasSemanales.push(ventasSemana);
+    datosCobradoSemanales.push(cobradoSemana);
+    datosCobrablesSemanales.push(cobrableSemana);
+  });
+
+  // --- Gráfico 1: Histórico de Cobranza (Líneas / Área) ---
+  if (chartHistoricoInstance) {
+    chartHistoricoInstance.data.labels = labelsSemanas;
+    chartHistoricoInstance.data.datasets[0].data = datosCobradoSemanales;
+    chartHistoricoInstance.data.datasets[1].data = datosCobrablesSemanales;
+    chartHistoricoInstance.update('none');
+  } else {
+    chartHistoricoInstance = new Chart(canvasHistorico, {
+      type: 'line',
+      data: {
+        labels: labelsSemanas,
+        datasets: [
+          {
+            label: 'Pagos cobrados',
+            data: datosCobradoSemanales,
+            borderColor: '#00A859',
+            backgroundColor: 'rgba(0, 168, 89, 0.12)',
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: 'Pedidos por cobrar',
+            data: datosCobrablesSemanales,
+            borderColor: '#00B2E3',
+            backgroundColor: 'transparent',
+            borderDash: [4, 4],
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2.5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: {
+            ticks: {
+              font: { size: 10 },
+              callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Gráfico 2: Barras Cobrado vs Cobrable ---
+  if (chartBarrasInstance) {
+    chartBarrasInstance.data.labels = labelsSemanas;
+    chartBarrasInstance.data.datasets[0].data = datosCobradoSemanales;
+    chartBarrasInstance.data.datasets[1].data = datosCobrablesSemanales;
+    chartBarrasInstance.update('none');
+  } else {
+    chartBarrasInstance = new Chart(canvasBarras, {
+      type: 'bar',
+      data: {
+        labels: labelsSemanas,
+        datasets: [
+          {
+            label: 'Cobrado',
+            data: datosCobradoSemanales,
+            backgroundColor: '#00A859',
+            borderRadius: 4
+          },
+          {
+            label: 'Cobrable',
+            data: datosCobrablesSemanales,
+            backgroundColor: '#002855',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { boxWidth: 10, font: { size: 10 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+          y: {
+            ticks: {
+              font: { size: 9 },
+              callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Gráfico 3: Dona de Cartera (Deuda vs Al corriente vs Saldo a favor) ---
+  const groups = groupByCliente(movimientosData);
+  const deudoresMonto = groups.filter((g) => g.debe > 0.005).reduce((s, g) => s + g.debe, 0);
+  const alDiaMonto = groups.filter((g) => Math.abs(g.debe) <= 0.005).reduce((s, g) => s + g.totalVentas, 0);
+  const favorMonto = groups.filter((g) => g.debe < -0.005).reduce((s, g) => s + Math.abs(g.debe), 0);
+
+  const donaLabels = ['En deuda', 'Al corriente', 'Saldo a favor'];
+  const donaData = [deudoresMonto, alDiaMonto, favorMonto];
+
+  if (chartDonaInstance) {
+    chartDonaInstance.data.datasets[0].data = donaData;
+    chartDonaInstance.update('none');
+  } else {
+    chartDonaInstance = new Chart(canvasDona, {
+      type: 'doughnut',
+      data: {
+        labels: donaLabels,
+        datasets: [
+          {
+            data: donaData,
+            backgroundColor: ['#DC2626', '#00B2E3', '#00A859'],
+            borderWidth: 2,
+            hoverOffset: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 10, font: { size: 10 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.label}: ${formatMoney(ctx.parsed)}`
+            }
+          }
+        },
+        cutout: '68%'
+      }
+    });
+  }
+}
+
 function renderDashboard() {
   const container = document.getElementById('dashboard-clientes');
   if (!container) return;
 
   const groups = groupByCliente(movimientosData);
-  const numDeudores = groups.filter((g) => g.debe > 0).length;
-  const totalDeudores = groups.filter((g) => g.debe > 0).reduce((sum, g) => sum + g.debe, 0);
-  const numAlDia = groups.filter((g) => g.debe <= 0).length;
-  const totalAlDia = groups.filter((g) => g.debe <= 0).reduce((s, g) => s + Math.abs(g.debe), 0);
+  const numDeudores = groups.filter((g) => g.debe > 0.005).length;
+  const totalDeudores = groups.filter((g) => g.debe > 0.005).reduce((sum, g) => sum + g.debe, 0);
+  const numAlDia = groups.filter((g) => g.debe <= 0.005).length;
+  const totalAlDia = groups.filter((g) => g.debe <= 0.005).reduce((s, g) => s + Math.abs(g.debe), 0);
   const balanceGeneral = groups.reduce((sum, g) => sum + g.debe, 0);
 
   container.innerHTML = `
@@ -469,7 +711,7 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
     </div>
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #00A859;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al d\u00EDa</p>
+      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al día</p>
       <p class="text-xl font-bold" style="color: #004d26;">${numAlDia}</p>
       <p class="text-[11px] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
     </div>
@@ -479,6 +721,8 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
     </div>
   `;
+
+  updateCharts();
 }
 
 function updatePedidoFechaInfo() {

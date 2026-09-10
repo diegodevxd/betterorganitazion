@@ -455,6 +455,49 @@
     </div>
     <div class="mb-xl">
     <div class="grid grid-cols-3 gap-3 mb-4" id="dashboard-clientes"></div>
+    
+    <!-- Gráficos de Cobranza y Ventas (Chart.js 4 UMD) -->
+    <div class="space-y-3 mb-5" id="seccion-graficos">
+      <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[18px] text-[#00B2E3]">show_chart</span>
+            <h4 class="text-[13px] font-bold text-on-surface">Evolución de cobranza semanal</h4>
+          </div>
+          <span class="text-[11px] text-outline">Últimas 8 semanas</span>
+        </div>
+        <div class="w-full h-48 relative">
+          <canvas id="chart-historico"></canvas>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-[#00A859]">bar_chart</span>
+              <h4 class="text-[13px] font-bold text-on-surface">Cobrado vs Pedidos</h4>
+            </div>
+          </div>
+          <div class="w-full h-44 relative">
+            <canvas id="chart-barras-semanal"></canvas>
+          </div>
+        </div>
+
+        <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px] text-[#002855]">pie_chart</span>
+              <h4 class="text-[13px] font-bold text-on-surface">Distribución de cartera</h4>
+            </div>
+          </div>
+          <div class="w-full h-44 relative flex items-center justify-center">
+            <canvas id="chart-dona-cartera"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
       <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Cuentas de Clientes
@@ -649,6 +692,7 @@
       </div>
     </div>
     <script src="config.js"></script>
+    <script src="vendor/chart.umd.min.js" defer></script>
     <script src="app.js" defer></script>
     <script src="register-sw.js"></script>
     </body></html>
