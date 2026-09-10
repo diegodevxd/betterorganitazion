@@ -856,10 +856,15 @@
             </div>
           </div>
 
-          <!-- Mensaje de Error en Español -->
-          <div class="hidden p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-start gap-2 text-left" id="login-error">
-            <span class="material-symbols-outlined text-[18px] shrink-0 text-red-600">error</span>
-            <span id="login-error-texto">Credenciales incorrectas.</span>
+          <!-- Mensaje de Error en Español / Reintento -->
+          <div class="hidden p-3.5 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-700 flex flex-col gap-2 text-left" id="login-error">
+            <div class="flex items-start gap-2">
+              <span class="material-symbols-outlined text-[18px] shrink-0 text-red-600">error</span>
+              <span id="login-error-texto" class="flex-1">Credenciales incorrectas.</span>
+            </div>
+            <button type="button" class="hidden self-end px-3 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg font-bold text-[11px] transition-colors" id="btn-login-reintentar">
+              Reintentar conexión
+            </button>
           </div>
 
           <button type="submit" class="w-full h-12 rounded-full font-button text-sm font-bold text-white btn-gradient shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 mt-2" id="btn-login-submit">

@@ -50,23 +50,15 @@ function getSupabase() {
 // Autenticación de Administrador (Paso 5)
 // ============================================
 let isAdminAuthenticated = false;
+let isAuthenticating = false;
 
-function showLoginScreen(errorMessage = '') {
+function showLoginScreen(errorMessage = '', showRetry = false) {
   isAdminAuthenticated = false;
+  isAuthenticating = false;
   const pantallaLogin = document.getElementById('pantalla-login');
   if (pantallaLogin) pantallaLogin.classList.remove('hidden');
 
-  const errorEl = document.getElementById('login-error');
-  const errorTextEl = document.getElementById('login-error-texto');
-  if (errorEl && errorTextEl) {
-    if (errorMessage) {
-      errorTextEl.textContent = errorMessage;
-      errorEl.classList.remove('hidden');
-    } else {
-      errorEl.classList.add('hidden');
-      errorTextEl.textContent = '';
-    }
-  }
+  setLoginError(errorMessage, showRetry);
 
   const passInput = document.getElementById('login-password');
   if (passInput) passInput.value = '';
@@ -76,35 +68,43 @@ function hideLoginScreen() {
   const pantallaLogin = document.getElementById('pantalla-login');
   if (pantallaLogin) pantallaLogin.classList.add('hidden');
 
-  const errorEl = document.getElementById('login-error');
-  if (errorEl) errorEl.classList.add('hidden');
+  setLoginError('', false);
 }
 
-function setLoginError(message) {
+function setLoginError(message, showRetry = false) {
   const errorEl = document.getElementById('login-error');
   const errorTextEl = document.getElementById('login-error-texto');
+  const btnRetry = document.getElementById('btn-login-reintentar');
   if (!errorEl || !errorTextEl) return;
 
   if (message) {
     errorTextEl.textContent = message;
     errorEl.classList.remove('hidden');
+    if (btnRetry) {
+      if (showRetry) {
+        btnRetry.classList.remove('hidden');
+      } else {
+        btnRetry.classList.add('hidden');
+      }
+    }
   } else {
     errorEl.classList.add('hidden');
     errorTextEl.textContent = '';
+    if (btnRetry) btnRetry.classList.add('hidden');
   }
 }
 
+// Devuelve { ok: true, esAdmin: boolean } o { ok: false, error: Error }
+// Permite distinguir fallos de red de una respuesta legítima es_admin = false.
 async function verifyEsAdmin() {
   try {
     const { data, error } = await getSupabase().rpc('es_admin');
     if (error) {
-      console.warn('verifyEsAdmin rpc error:', error);
-      return false;
+      return { ok: false, error };
     }
-    return Boolean(data);
+    return { ok: true, esAdmin: Boolean(data) };
   } catch (err) {
-    console.error('verifyEsAdmin failed:', err);
-    return false;
+    return { ok: false, error: err };
   }
 }
 
@@ -125,6 +125,7 @@ async function handleLoginSubmit(event) {
 
   setLoginError('');
   if (btnSubmit) setButtonLoading(btnSubmit, true, 'Verificando...');
+  isAuthenticating = true;
 
   try {
     const { data, error } = await getSupabase().auth.signInWithPassword({
@@ -133,11 +134,12 @@ async function handleLoginSubmit(event) {
     });
 
     if (error) {
+      isAuthenticating = false;
       const msg = error.message || '';
       if (/invalid login credentials|invalid credentials/i.test(msg)) {
         setLoginError('Correo o contraseña incorrectos.');
       } else if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-        setLoginError('Sin conexión. Revisa tu internet e intenta de nuevo.');
+        setLoginError('Sin conexión. Revisa tu internet e intenta de nuevo.', true);
       } else {
         setLoginError(formatFriendlyError(error, 'Error al iniciar sesión.'));
       }
@@ -145,21 +147,32 @@ async function handleLoginSubmit(event) {
     }
 
     if (!data?.user) {
+      isAuthenticating = false;
       setLoginError('No se pudo verificar el usuario.');
       return;
     }
 
     // Verificar si el usuario autenticado tiene rol admin registrado
-    const esAdmin = await verifyEsAdmin();
-    if (!esAdmin) {
+    const resAdmin = await verifyEsAdmin();
+    if (!resAdmin.ok) {
+      // Error de red o timeout en el RPC: NO cerrar sesión, permitir reintento
+      isAuthenticating = false;
+      setLoginError('No se pudo verificar tu acceso. Revisa tu conexión e intenta de nuevo.', true);
+      return;
+    }
+
+    if (!resAdmin.esAdmin) {
+      // Usuario autenticado pero no autorizado como admin
+      isAuthenticating = false;
       await getSupabase().auth.signOut();
       setLoginError('Esta cuenta no tiene acceso al panel.');
       return;
     }
 
-    // Inicio de sesión exitoso y verificado como admin
+    // Acceso verificado: entrar y cargar datos
     await onAdminAuthenticated();
   } catch (err) {
+    isAuthenticating = false;
     console.error('handleLoginSubmit error:', err);
     setLoginError(formatFriendlyError(err, 'Error inesperado al entrar.'));
   } finally {
@@ -174,12 +187,13 @@ async function handleLogout() {
     console.warn('signOut error:', err);
   } finally {
     showLoginScreen();
-    showSuccessToast('Sesión cerrada');
   }
 }
 
 async function onAdminAuthenticated() {
+  if (isAdminAuthenticated) return;
   isAdminAuthenticated = true;
+  isAuthenticating = false;
   hideLoginScreen();
 
   try {
@@ -198,8 +212,15 @@ async function checkInitialAdminSession() {
     }
 
     // Verificar si la sesión existente pertenece a un administrador
-    const esAdmin = await verifyEsAdmin();
-    if (!esAdmin) {
+    const resAdmin = await verifyEsAdmin();
+    if (!resAdmin.ok) {
+      // Falla de red: NO hacer signOut para no expulsar al usuario
+      console.warn('Fallo de red al verificar sesión admin existente:', resAdmin.error);
+      showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
+      return;
+    }
+
+    if (!resAdmin.esAdmin) {
       await getSupabase().auth.signOut();
       showLoginScreen('Esta cuenta no tiene acceso al panel.');
       return;
@@ -208,7 +229,7 @@ async function checkInitialAdminSession() {
     await onAdminAuthenticated();
   } catch (err) {
     console.error('checkInitialAdminSession error:', err);
-    showLoginScreen();
+    showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
   }
 }
 
@@ -217,6 +238,16 @@ function setupAuthListeners() {
   document.getElementById('btn-logout-drawer')?.addEventListener('click', handleLogout);
   document.getElementById('btn-logout-header')?.addEventListener('click', handleLogout);
 
+  document.getElementById('btn-login-reintentar')?.addEventListener('click', async () => {
+    const btnRetry = document.getElementById('btn-login-reintentar');
+    if (btnRetry) setButtonLoading(btnRetry, true, 'Reintentando...');
+    try {
+      await checkInitialAdminSession();
+    } finally {
+      if (btnRetry) setButtonLoading(btnRetry, false);
+    }
+  });
+
   try {
     getSupabase().auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
@@ -224,11 +255,17 @@ function setupAuthListeners() {
           showLoginScreen();
         }
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        if (!isAdminAuthenticated && session?.user) {
-          const esAdmin = await verifyEsAdmin();
-          if (esAdmin) {
+        // Evitar procesar doble si handleLoginSubmit ya está en curso o si ya está autenticado
+        if (!isAdminAuthenticated && !isAuthenticating && session?.user) {
+          isAuthenticating = true;
+          const resAdmin = await verifyEsAdmin();
+          if (!resAdmin.ok) {
+            isAuthenticating = false;
+            showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
+          } else if (resAdmin.esAdmin) {
             await onAdminAuthenticated();
           } else {
+            isAuthenticating = false;
             await getSupabase().auth.signOut();
             showLoginScreen('Esta cuenta no tiene acceso al panel.');
           }
