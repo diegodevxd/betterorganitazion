@@ -802,15 +802,36 @@ function setStoredMetaSemanal(monto) {
   }
 }
 
-// Devuelve el percentil 90 de saldos deudores como sugerencia de umbral de deuda alta
+// Devuelve una sugerencia de umbral de deuda alta para el ranking de morosos
+// Exige muestra mínima (n >= 10), usa interpolación lineal de percentil y evita degenerar al máximo
 function getSuggestedDeudaAltaRef() {
   const allGroups = groupByCliente(movimientosData);
   const saldosDeudores = allGroups.filter((g) => g.debe > 0.005).map((g) => g.debe).sort((a, b) => a - b);
-  if (saldosDeudores.length === 0) return 5000;
+  const n = saldosDeudores.length;
+  if (n === 0) return 5000;
 
-  const idx = Math.min(saldosDeudores.length - 1, Math.floor(saldosDeudores.length * 0.9));
-  const p90 = saldosDeudores[idx];
-  return Math.max(1000, Math.round(p90 / 100) * 100);
+  // Si hay pocos deudores (< 10), usar un default o factor de mediana seguro
+  if (n < 10) {
+    const mid = Math.floor(n / 2);
+    const mediana = n % 2 === 0 ? (saldosDeudores[mid - 1] + saldosDeudores[mid]) / 2 : saldosDeudores[mid];
+    const sugerida = Math.max(3000, Math.round((mediana * 2.5) / 100) * 100);
+    return Math.max(1000, sugerida);
+  }
+
+  // Interpolación lineal de percentil 90 (método estándar NIST / R-7 / NumPy)
+  const p = 0.9;
+  const pos = (n - 1) * p;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const p90 = (saldosDeudores[base + 1] !== undefined)
+    ? saldosDeudores[base] + rest * (saldosDeudores[base + 1] - saldosDeudores[base])
+    : saldosDeudores[base];
+
+  // Acotar para que no sea estrictamente igual al saldo máximo cuando n es moderado
+  const maxSaldo = saldosDeudores[n - 1];
+  const valorAcotado = Math.min(p90, maxSaldo * 0.95);
+
+  return Math.max(1000, Math.round(valorAcotado / 100) * 100);
 }
 
 function getStoredDeudaAltaRef() {
@@ -963,7 +984,8 @@ function calculateScoreCobranza() {
   let A_ratio = 1;
   if (totalDeudaAbierta > 0) {
     const promedioPonderadoDias = sumaDiasPonderada / totalDeudaAbierta;
-    A_ratio = Math.max(0, 1 - Math.min(1, promedioPonderadoDias / 42));
+    // Techo más amplio de 60 días (2 meses) para mantener diferenciación y no saturar inmediatamente en 0
+    A_ratio = Math.max(0, 1 - Math.min(1, promedioPonderadoDias / 60));
   }
   const ptsA = Math.round(20 * A_ratio);
 
