@@ -1,5 +1,14 @@
-const CACHE_NAME = 'bettermancera-v3';
-const APP_SHELL = ['./', './index.html', './app.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+const CACHE_NAME = 'bettermancera-v4';
+const APP_SHELL = [
+  './',
+  './index.html',
+  './app.js',
+  './vendor/chart.umd.min.js',
+  './manifest.webmanifest',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/apple-touch-icon.png'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -21,6 +30,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+
+  // config.js: red primero con fallback a cache para no bloquear arranque offline sin perder rotación
+  if (url.pathname.endsWith('/config.js') || url.pathname === '/config.js') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match(event.request))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {

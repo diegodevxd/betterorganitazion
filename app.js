@@ -145,12 +145,13 @@ function matchesDate(recordDate, filterDate) {
 
 function getInitials(nombre) {
   if (!nombre) return '?';
-  return nombre
+  const raw = String(nombre)
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
     .join('');
+  return escapeHtml(raw || '?');
 }
 
 function formatMoney(total) {
@@ -162,6 +163,36 @@ function formatMoney(total) {
 
 function getMovimientoFecha(mov) {
   return mov.fecha || mov.created_at;
+}
+
+// Devuelve un timestamp numérico (ms) basado en la fecha efectiva (fecha + hora).
+// Permite ordenar movimientos cronológicamente de forma real incluso si un pago
+// o pedido fue cargado retroactivamente.
+function getMovimientoDateTime(mov) {
+  if (!mov) return 0;
+  if (typeof mov._ts === 'number') return mov._ts;
+
+  const fechaStr = normalizeDate(mov.fecha || mov.created_at);
+  let horaStr = mov.hora || '';
+  if (!horaStr && mov.created_at) {
+    const d = new Date(mov.created_at);
+    if (!Number.isNaN(d.getTime())) {
+      horaStr = d.toTimeString().slice(0, 8);
+    }
+  }
+  if (!horaStr) horaStr = '00:00:00';
+
+  const combined = new Date(`${fechaStr}T${horaStr}`);
+  const ts = combined.getTime();
+  if (!Number.isNaN(ts)) {
+    mov._ts = ts;
+    return ts;
+  }
+
+  const fallback = new Date(mov.created_at || mov.fecha).getTime();
+  const res = Number.isNaN(fallback) ? 0 : fallback;
+  mov._ts = res;
+  return res;
 }
 
 function setButtonLoading(button, isLoading, loadingText = 'Cargando...') {
@@ -427,15 +458,279 @@ function renderEmptyState(container, message) {
   `;
 }
 
+// ============================================
+// Gráficos (Chart.js 4 UMD)
+// ============================================
+let chartHistoricoInstance = null;
+let chartBarrasInstance = null;
+let chartDonaInstance = null;
+
+function destroyCharts() {
+  if (chartHistoricoInstance) {
+    try { chartHistoricoInstance.destroy(); } catch {}
+    chartHistoricoInstance = null;
+  }
+  if (chartBarrasInstance) {
+    try { chartBarrasInstance.destroy(); } catch {}
+    chartBarrasInstance = null;
+  }
+  if (chartDonaInstance) {
+    try { chartDonaInstance.destroy(); } catch {}
+    chartDonaInstance = null;
+  }
+}
+
+function updateCharts() {
+  if (typeof Chart === 'undefined') return;
+
+  const canvasHistorico = document.getElementById('chart-historico');
+  const canvasBarras = document.getElementById('chart-barras-semanal');
+  const canvasDona = document.getElementById('chart-dona-cartera');
+
+  if (!canvasHistorico || !canvasBarras || !canvasDona) return;
+
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const animationDuration = prefersReducedMotion ? 0 : 400;
+
+  // --- 1. Calcular datos de las últimas 8 semanas ---
+  const { inicio: currInicio } = getWeekRange();
+  const weekRanges = [];
+  for (let i = 7; i >= 0; i--) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    weekRanges.push({ inicio: wStart, fin: wEnd });
+  }
+
+  const labelsSemanas = weekRanges.map((w) => `${formatDateShort(w.inicio)}`);
+  const datosVentasSemanales = [];
+  const datosCobradoSemanales = [];
+  const datosCobrablesSemanales = [];
+
+  weekRanges.forEach((w) => {
+    let ventasSemana = 0;
+    let cobradoSemana = 0;
+    let cobrableSemana = 0;
+
+    movimientosData.forEach((m) => {
+      const fechaStr = getMovimientoFecha(m);
+      if (isSameWeek(fechaStr, w)) {
+        const monto = Number(m.monto) || 0;
+        if (m.tipo === 'pedido') {
+          ventasSemana += monto;
+          if (m.estado !== 'pagado') {
+            cobrableSemana += monto;
+          }
+        } else if (m.tipo === 'pago') {
+          cobradoSemana += monto;
+        }
+      }
+    });
+
+    datosVentasSemanales.push(ventasSemana);
+    datosCobradoSemanales.push(cobradoSemana);
+    datosCobrablesSemanales.push(cobrableSemana);
+  });
+
+  // --- Gráfico 1: Histórico de Cobranza (Líneas / Área) ---
+  if (chartHistoricoInstance) {
+    chartHistoricoInstance.data.labels = labelsSemanas;
+    chartHistoricoInstance.data.datasets[0].data = datosCobradoSemanales;
+    chartHistoricoInstance.data.datasets[1].data = datosCobrablesSemanales;
+    chartHistoricoInstance.update('none');
+  } else {
+    chartHistoricoInstance = new Chart(canvasHistorico, {
+      type: 'line',
+      data: {
+        labels: labelsSemanas,
+        datasets: [
+          {
+            label: 'Pagos cobrados',
+            data: datosCobradoSemanales,
+            borderColor: '#00A859',
+            backgroundColor: 'rgba(0, 168, 89, 0.12)',
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2.5,
+            pointRadius: 3,
+            pointHoverRadius: 5
+          },
+          {
+            label: 'Pedidos por cobrar',
+            data: datosCobrablesSemanales,
+            borderColor: '#00B2E3',
+            backgroundColor: 'transparent',
+            borderDash: [4, 4],
+            tension: 0.35,
+            borderWidth: 2,
+            pointRadius: 2.5
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { boxWidth: 12, font: { size: 11 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          y: {
+            ticks: {
+              font: { size: 10 },
+              callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Gráfico 2: Barras Cobrado vs Cobrable ---
+  if (chartBarrasInstance) {
+    chartBarrasInstance.data.labels = labelsSemanas;
+    chartBarrasInstance.data.datasets[0].data = datosCobradoSemanales;
+    chartBarrasInstance.data.datasets[1].data = datosCobrablesSemanales;
+    chartBarrasInstance.update('none');
+  } else {
+    chartBarrasInstance = new Chart(canvasBarras, {
+      type: 'bar',
+      data: {
+        labels: labelsSemanas,
+        datasets: [
+          {
+            label: 'Cobrado',
+            data: datosCobradoSemanales,
+            backgroundColor: '#00A859',
+            borderRadius: 4
+          },
+          {
+            label: 'Cobrable',
+            data: datosCobrablesSemanales,
+            backgroundColor: '#002855',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { boxWidth: 10, font: { size: 10 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => ` ${ctx.dataset.label}: ${formatMoney(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+          y: {
+            ticks: {
+              font: { size: 9 },
+              callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
+            },
+            grid: { color: 'rgba(0,0,0,0.04)' }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Gráfico 3: Dona de Cartera (Clientes en deuda vs al corriente vs con saldo a favor) ---
+  const groups = groupByCliente(movimientosData);
+  const deudoresGroups = groups.filter((g) => g.debe > 0.005);
+  const alDiaGroups = groups.filter((g) => Math.abs(g.debe) <= 0.005);
+  const favorGroups = groups.filter((g) => g.debe < -0.005);
+
+  const deudoresCount = deudoresGroups.length;
+  const alDiaCount = alDiaGroups.length;
+  const favorCount = favorGroups.length;
+
+  const deudoresMonto = deudoresGroups.reduce((s, g) => s + g.debe, 0);
+  const alDiaMonto = alDiaGroups.reduce((s, g) => s + g.totalCobrable, 0);
+  const favorMonto = favorGroups.reduce((s, g) => s + Math.abs(g.debe), 0);
+
+  const donaLabels = ['En deuda', 'Al corriente', 'Saldo a favor'];
+  const donaData = [deudoresCount, alDiaCount, favorCount];
+  const donaMontos = [deudoresMonto, alDiaMonto, favorMonto];
+
+  const maxDpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  if (chartDonaInstance) {
+    chartDonaInstance._donaMontos = donaMontos;
+    chartDonaInstance.data.datasets[0].data = donaData;
+    chartDonaInstance.update('none');
+  } else {
+    chartDonaInstance = new Chart(canvasDona, {
+      type: 'doughnut',
+      data: {
+        labels: donaLabels,
+        datasets: [
+          {
+            data: donaData,
+            backgroundColor: ['#DC2626', '#00B2E3', '#00A859'],
+            borderWidth: 2,
+            hoverOffset: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        devicePixelRatio: maxDpr,
+        animation: { duration: animationDuration },
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 10, font: { size: 10 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const count = ctx.parsed || 0;
+                const idx = ctx.dataIndex;
+                const montos = ctx.chart?._donaMontos || [];
+                const monto = montos[idx] || 0;
+                return ` ${ctx.label}: ${count} cliente${count !== 1 ? 's' : ''} (${formatMoney(monto)})`;
+              }
+            }
+          }
+        },
+        cutout: '68%'
+      }
+    });
+    chartDonaInstance._donaMontos = donaMontos;
+  }
+}
+
 function renderDashboard() {
   const container = document.getElementById('dashboard-clientes');
   if (!container) return;
 
   const groups = groupByCliente(movimientosData);
-  const numDeudores = groups.filter((g) => g.debe > 0).length;
-  const totalDeudores = groups.filter((g) => g.debe > 0).reduce((sum, g) => sum + g.debe, 0);
-  const numAlDia = groups.filter((g) => g.debe <= 0).length;
-  const totalAlDia = groups.filter((g) => g.debe <= 0).reduce((s, g) => s + Math.abs(g.debe), 0);
+  const numDeudores = groups.filter((g) => g.debe > 0.005).length;
+  const totalDeudores = groups.filter((g) => g.debe > 0.005).reduce((sum, g) => sum + g.debe, 0);
+  const numAlDia = groups.filter((g) => g.debe <= 0.005).length;
+  const totalAlDia = groups.filter((g) => g.debe <= 0.005).reduce((s, g) => s + Math.abs(g.debe), 0);
   const balanceGeneral = groups.reduce((sum, g) => sum + g.debe, 0);
 
   container.innerHTML = `
@@ -445,7 +740,7 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
     </div>
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #00A859;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al d\u00EDa</p>
+      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al día</p>
       <p class="text-xl font-bold" style="color: #004d26;">${numAlDia}</p>
       <p class="text-[11px] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
     </div>
@@ -455,6 +750,550 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
     </div>
   `;
+}
+
+// ============================================
+// Gamificación y Métricas de Cobranza (Fase 4)
+// ============================================
+const STORAGE_KEY_META_SEMANAL = 'bm_meta_semanal_v1';
+const STORAGE_KEY_DEUDA_REF = 'bm_deuda_ref_v1';
+
+// Devuelve la mediana de cobranza (pagos) de las últimas 4 semanas cerradas
+function getSuggestedMetaSemanal() {
+  const { inicio: currInicio } = getWeekRange();
+  const cobros4Semanas = [];
+
+  for (let i = 1; i <= 4; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    let totalPagos = 0;
+    movimientosData.forEach((m) => {
+      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+        totalPagos += Number(m.monto) || 0;
+      }
+    });
+    cobros4Semanas.push(totalPagos);
+  }
+
+  cobros4Semanas.sort((a, b) => a - b);
+  const mid = Math.floor(cobros4Semanas.length / 2);
+  const mediana = cobros4Semanas.length % 2 === 0
+    ? (cobros4Semanas[mid - 1] + cobros4Semanas[mid]) / 2
+    : cobros4Semanas[mid];
+
+  return Math.max(1000, Math.round(mediana / 100) * 100);
+}
+
+function getStoredMetaSemanal() {
+  const raw = localStorage.getItem(STORAGE_KEY_META_SEMANAL);
+  const val = parseFloat(raw);
+  if (!Number.isNaN(val) && val > 0) return val;
+  return getSuggestedMetaSemanal();
+}
+
+function setStoredMetaSemanal(monto) {
+  if (monto > 0) {
+    localStorage.setItem(STORAGE_KEY_META_SEMANAL, String(monto));
+  }
+}
+
+// Devuelve una sugerencia de umbral de deuda alta para el ranking de morosos
+// Exige muestra mínima (n >= 10), usa interpolación lineal de percentil y evita degenerar al máximo
+function getSuggestedDeudaAltaRef() {
+  const allGroups = groupByCliente(movimientosData);
+  const saldosDeudores = allGroups.filter((g) => g.debe > 0.005).map((g) => g.debe).sort((a, b) => a - b);
+  const n = saldosDeudores.length;
+  if (n === 0) return 5000;
+
+  // Si hay pocos deudores (< 10), usar un default o factor de mediana seguro
+  if (n < 10) {
+    const mid = Math.floor(n / 2);
+    const mediana = n % 2 === 0 ? (saldosDeudores[mid - 1] + saldosDeudores[mid]) / 2 : saldosDeudores[mid];
+    const sugerida = Math.max(3000, Math.round((mediana * 2.5) / 100) * 100);
+    return Math.max(1000, sugerida);
+  }
+
+  // Interpolación lineal de percentil 90 (método estándar NIST / R-7 / NumPy)
+  const p = 0.9;
+  const pos = (n - 1) * p;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const p90 = (saldosDeudores[base + 1] !== undefined)
+    ? saldosDeudores[base] + rest * (saldosDeudores[base + 1] - saldosDeudores[base])
+    : saldosDeudores[base];
+
+  // Acotar para que no sea estrictamente igual al saldo máximo cuando n es moderado
+  const maxSaldo = saldosDeudores[n - 1];
+  const valorAcotado = Math.min(p90, maxSaldo * 0.95);
+
+  return Math.max(1000, Math.round(valorAcotado / 100) * 100);
+}
+
+function getStoredDeudaAltaRef() {
+  const raw = localStorage.getItem(STORAGE_KEY_DEUDA_REF);
+  const val = parseFloat(raw);
+  if (!Number.isNaN(val) && val > 0) return val;
+  return getSuggestedDeudaAltaRef();
+}
+
+function setStoredDeudaAltaRef(monto) {
+  if (monto > 0) {
+    localStorage.setItem(STORAGE_KEY_DEUDA_REF, String(monto));
+  }
+}
+
+// Función unificada para determinar si una semana cumplió la meta de cobranza (Defecto 3)
+function semanaCumplioMeta(wRange, meta) {
+  let cobrado = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+      cobrado += Number(m.monto) || 0;
+    }
+  });
+  return cobrado >= meta;
+}
+
+// Calcula el score de cobranza (0-100) en ventana móvil de 28 días
+function calculateScoreCobranza() {
+  const now = new Date();
+  const ventanaInicio = new Date(now);
+  ventanaInicio.setDate(now.getDate() - 28);
+  ventanaInicio.setHours(0, 0, 0, 0);
+
+  const allGroups = groupByCliente(movimientosData);
+
+  // 1. Tasa de cobranza T (40 pts)
+  // Pagos aplicados en los últimos 28 días vs Deuda exigible en los últimos 28 días
+  let pagos28 = 0;
+  let cobrables28 = 0;
+
+  movimientosData.forEach((m) => {
+    const d = parseLocalDate(getMovimientoFecha(m));
+    if (d && d >= ventanaInicio && d <= now) {
+      const monto = Number(m.monto) || 0;
+      if (m.tipo === 'pago') {
+        pagos28 += monto;
+      } else if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        cobrables28 += monto;
+      }
+    }
+  });
+
+  // Saldo abierto antes de la ventana calculado POR CLIENTE sin netear saldos entre clientes distintos (Defecto 4)
+  const saldoPrevioPorCliente = new Map();
+  movimientosData.forEach((m) => {
+    const d = parseLocalDate(getMovimientoFecha(m));
+    if (d && d < ventanaInicio) {
+      const cKey = normalizeClienteKey(m.cliente);
+      if (!cKey) return;
+      const prev = saldoPrevioPorCliente.get(cKey) || 0;
+      const monto = Number(m.monto) || 0;
+      if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        saldoPrevioPorCliente.set(cKey, prev + monto);
+      } else if (m.tipo === 'pago') {
+        saldoPrevioPorCliente.set(cKey, prev - monto);
+      }
+    }
+  });
+
+  let totalCarteraAbiertaPrevia = 0;
+  saldoPrevioPorCliente.forEach((saldo) => {
+    if (saldo > 0.005) {
+      totalCarteraAbiertaPrevia += saldo;
+    }
+  });
+
+  const deudaExigible28 = totalCarteraAbiertaPrevia + cobrables28;
+  let T_ratio = 1;
+  if (deudaExigible28 > 0) {
+    T_ratio = Math.min(1, Math.max(0, pagos28 / deudaExigible28));
+  } else {
+    const hayDeudaGlobal = allGroups.some((g) => g.debe > 0.005);
+    T_ratio = hayDeudaGlobal ? 0.5 : 1;
+  }
+  const ptsT = Math.round(40 * T_ratio);
+
+  // 2. Velocidad de cierre de ciclos V (25 pts)
+  let sumaVelocidadPonderada = 0;
+  let totalMontoCiclosCerrados = 0;
+
+  allGroups.forEach((group) => {
+    const sortedMovs = group.movimientos.slice().reverse();
+    let balance = 0;
+    let cycleStartTs = null;
+    let cycleMonto = 0;
+
+    sortedMovs.forEach((m) => {
+      const mDate = parseLocalDate(getMovimientoFecha(m));
+      const mTs = mDate ? mDate.getTime() : 0;
+      const monto = Number(m.monto) || 0;
+
+      if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        if (balance <= 0.005) {
+          cycleStartTs = mTs;
+          cycleMonto = 0;
+        }
+        balance += monto;
+        cycleMonto += monto;
+      } else if (m.tipo === 'pago') {
+        balance -= monto;
+        if (balance <= 0.005 && cycleStartTs && mDate && mDate >= ventanaInicio) {
+          const diasParaCerrar = Math.max(0, (mTs - cycleStartTs) / (1000 * 60 * 60 * 24));
+          const scoreCiclo = Math.max(0, 1 - diasParaCerrar / 28);
+          sumaVelocidadPonderada += scoreCiclo * cycleMonto;
+          totalMontoCiclosCerrados += cycleMonto;
+          cycleStartTs = null;
+          cycleMonto = 0;
+        }
+      }
+    });
+  });
+
+  const V_ratio = totalMontoCiclosCerrados > 0
+    ? (sumaVelocidadPonderada / totalMontoCiclosCerrados)
+    : 0.5;
+  const ptsV = Math.round(25 * V_ratio);
+
+  // 3. Antigüedad sana de cartera abierta A (20 pts)
+  let sumaDiasPonderada = 0;
+  let totalDeudaAbierta = 0;
+  let peorMorosoAntiguo = null;
+  let maxDiasMora = 0;
+
+  allGroups.forEach((group) => {
+    if (group.debe > 0.005) {
+      const cicloActual = getMovimientosCicloActual(group.cliente);
+      const primerPedido = cicloActual.find((m) => m.tipo === 'pedido' && m.estado !== 'pagado');
+      const fechaPrimer = primerPedido ? parseLocalDate(getMovimientoFecha(primerPedido)) : null;
+      const dias = fechaPrimer ? Math.max(0, Math.floor((now - fechaPrimer) / (1000 * 60 * 60 * 24))) : 0;
+      sumaDiasPonderada += dias * group.debe;
+      totalDeudaAbierta += group.debe;
+
+      if (dias > maxDiasMora) {
+        maxDiasMora = dias;
+        peorMorosoAntiguo = { cliente: group.cliente, dias, debe: group.debe };
+      }
+    }
+  });
+
+  let A_ratio = 1;
+  if (totalDeudaAbierta > 0) {
+    const promedioPonderadoDias = sumaDiasPonderada / totalDeudaAbierta;
+    // Techo más amplio de 60 días (2 meses) para mantener diferenciación y no saturar inmediatamente en 0
+    A_ratio = Math.max(0, 1 - Math.min(1, promedioPonderadoDias / 60));
+  }
+  const ptsA = Math.round(20 * A_ratio);
+
+  // 4. Racha y cumplimiento de metas R (15 pts) - Evalúa las 4 semanas anteriores cerradas (Defecto 3)
+  const meta = getStoredMetaSemanal();
+  const { inicio: currInicio } = getWeekRange();
+
+  let semanasCumplidas = 0;
+  for (let i = 1; i <= 4; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    if (semanaCumplioMeta(wRange, meta)) {
+      semanasCumplidas++;
+    }
+  }
+  const R_ratio = Math.min(1, semanasCumplidas / 4);
+  const ptsR = Math.round(15 * R_ratio);
+
+  // Score final sumado y acotado 0-100
+  const scoreTotal = Math.min(100, Math.max(0, ptsT + ptsV + ptsA + ptsR));
+
+  // Determinar Nivel
+  let nivelLabel = 'En arranque';
+  let nivelColor = '#DC2626';
+  let nivelBg = '#FEE2E2';
+
+  if (scoreTotal >= 80) {
+    nivelLabel = 'Imparable';
+    nivelColor = '#00A859';
+    nivelBg = '#D1FAE5';
+  } else if (scoreTotal >= 60) {
+    nivelLabel = 'Cobrador fuerte';
+    nivelColor = '#00B2E3';
+    nivelBg = '#E0F7FB';
+  } else if (scoreTotal >= 40) {
+    nivelLabel = 'Constante';
+    nivelColor = '#D97706';
+    nivelBg = '#FEF3C7';
+  }
+
+  // Siguiente línea de acción derivada del componente más débil en texto plano sin entidades HTML (Defecto 7 / Menor)
+  let lineaAccion = '';
+  const metaActual = getStoredMetaSemanal();
+  const currentWeek = getWeekRange();
+  let cobradoEstaSemana = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), currentWeek)) {
+      cobradoEstaSemana += Number(m.monto) || 0;
+    }
+  });
+  const faltaParaMeta = Math.max(0, metaActual - cobradoEstaSemana);
+
+  if (faltaParaMeta > 0 && (ptsT < 28 || ptsR < 10)) {
+    lineaAccion = `Cobra ${formatMoney(faltaParaMeta)} esta semana para alcanzar tu meta y subir puntaje.`;
+  } else if (peorMorosoAntiguo && peorMorosoAntiguo.dias >= 14 && ptsA < 16) {
+    lineaAccion = `La deuda de ${peorMorosoAntiguo.cliente} lleva ${peorMorosoAntiguo.dias} días (${formatMoney(peorMorosoAntiguo.debe)}). Es la más antigua.`;
+  } else if (ptsV < 15) {
+    lineaAccion = `Cierra ciclos pendientes cobrando los saldos de clientes con pedidos abiertos.`;
+  } else if (faltaParaMeta === 0) {
+    lineaAccion = `¡Meta semanal superada! Mantén el ritmo para extender tu racha.`;
+  } else {
+    lineaAccion = `Registra tus cobros a tiempo para mantener tu score en nivel ${nivelLabel}.`;
+  }
+
+  return {
+    scoreTotal,
+    ptsT,
+    ptsV,
+    ptsA,
+    ptsR,
+    nivelLabel,
+    nivelColor,
+    nivelBg,
+    lineaAccion,
+    pagos28,
+    deudaExigible28
+  };
+}
+
+// Calcula la racha activa de semanas consecutivas cerradas cumpliendo la meta (Defecto 3)
+function calculateRachaSemanas() {
+  const meta = getStoredMetaSemanal();
+  const { inicio: currInicio } = getWeekRange();
+  let rachaActual = 0;
+  let recordHistorico = 0;
+  let tempRacha = 0;
+
+  // Analizar hasta 26 semanas cerradas hacia atrás (i=1 a 26)
+  const maxSemanas = 26;
+  const resultadosPorSemana = [];
+
+  for (let i = 1; i <= maxSemanas; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    const cumplio = semanaCumplioMeta(wRange, meta);
+    resultadosPorSemana.push(cumplio);
+  }
+
+  // Racha activa consecutiva desde la última semana cerrada
+  for (let i = 0; i < resultadosPorSemana.length; i++) {
+    if (resultadosPorSemana[i]) {
+      rachaActual++;
+    } else {
+      break;
+    }
+  }
+
+  // Récord histórico en la serie de semanas cerradas
+  resultadosPorSemana.slice().reverse().forEach((cumplio) => {
+    if (cumplio) {
+      tempRacha++;
+      if (tempRacha > recordHistorico) recordHistorico = tempRacha;
+    } else {
+      tempRacha = 0;
+    }
+  });
+
+  if (rachaActual > recordHistorico) recordHistorico = rachaActual;
+
+  return { rachaActual, recordHistorico };
+}
+
+// Calcula el ranking de clientes morosos anclado a referencia configurable (Defecto 7 / Claude Corrección 3)
+function calculateRankingMorosos() {
+  const now = new Date();
+  const allGroups = groupByCliente(movimientosData);
+  const deudores = allGroups.filter((g) => g.debe > 0.005);
+  const deudaAltaRef = getStoredDeudaAltaRef();
+
+  const ranking = deudores.map((g) => {
+    const cicloActual = getMovimientosCicloActual(g.cliente);
+    const primerPedido = cicloActual.find((m) => m.tipo === 'pedido' && m.estado !== 'pagado');
+    const ultimoPago = g.movimientos.find((m) => m.tipo === 'pago');
+
+    const fechaPrimerPedido = primerPedido ? parseLocalDate(getMovimientoFecha(primerPedido)) : null;
+    const fechaUltimoPago = ultimoPago ? parseLocalDate(getMovimientoFecha(ultimoPago)) : null;
+
+    const diasDeuda = fechaPrimerPedido ? Math.max(0, Math.floor((now - fechaPrimerPedido) / (1000 * 60 * 60 * 24))) : 0;
+    const diasSinPago = fechaUltimoPago ? Math.max(0, Math.floor((now - fechaUltimoPago) / (1000 * 60 * 60 * 24))) : Math.max(diasDeuda, 28);
+
+    // Fórmula anclada con deudaAltaRef configurable
+    const componenteSaldo = 50 * Math.min(1, Math.max(0, g.debe / deudaAltaRef));
+    const componenteDiasDeuda = 35 * Math.min(1, diasDeuda / 42);
+    const componenteDiasSinPago = 15 * Math.min(1, diasSinPago / 28);
+
+    const prioridad = Math.round(componenteSaldo + componenteDiasDeuda + componenteDiasSinPago);
+
+    return {
+      cliente: g.cliente,
+      debe: g.debe,
+      diasDeuda,
+      diasSinPago,
+      prioridad,
+      ultimoPagoFecha: ultimoPago ? getMovimientoFecha(ultimoPago) : null
+    };
+  });
+
+  return ranking.sort((a, b) => b.prioridad - a.prioridad);
+}
+
+function renderGamificacion() {
+  // 1. Render Score
+  const scoreData = calculateScoreCobranza();
+  const scoreNumeroEl = document.getElementById('score-numero');
+  const scoreBadgeEl = document.getElementById('score-nivel-badge');
+  const scoreTasaEl = document.getElementById('score-tasa');
+  const scoreVelEl = document.getElementById('score-velocidad');
+  const scoreAntEl = document.getElementById('score-antiguedad');
+  const scoreRachaEl = document.getElementById('score-racha');
+  const scoreAccionTextoEl = document.getElementById('score-accion-texto');
+
+  if (scoreNumeroEl) scoreNumeroEl.textContent = scoreData.scoreTotal;
+  if (scoreBadgeEl) {
+    scoreBadgeEl.textContent = scoreData.nivelLabel;
+    scoreBadgeEl.style.color = scoreData.nivelColor;
+    scoreBadgeEl.style.background = scoreData.nivelBg;
+  }
+  if (scoreTasaEl) scoreTasaEl.textContent = `${scoreData.ptsT}/40`;
+  if (scoreVelEl) scoreVelEl.textContent = `${scoreData.ptsV}/25`;
+  if (scoreAntEl) scoreAntEl.textContent = `${scoreData.ptsA}/20`;
+  if (scoreRachaEl) scoreRachaEl.textContent = `${scoreData.ptsR}/15`;
+  if (scoreAccionTextoEl) scoreAccionTextoEl.textContent = scoreData.lineaAccion;
+
+  // 2. Render Meta Semanal
+  const metaMonto = getStoredMetaSemanal();
+  const currentWeek = getWeekRange();
+  let cobradoSemanaActual = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), currentWeek)) {
+      cobradoSemanaActual += Number(m.monto) || 0;
+    }
+  });
+
+  const porcentajeMeta = Math.min(100, Math.round((cobradoSemanaActual / (metaMonto || 1)) * 100));
+  const metaProgresoTextoEl = document.getElementById('meta-progreso-texto');
+  const metaPorcentajeTextoEl = document.getElementById('meta-porcentaje-texto');
+  const metaProgresoBarraEl = document.getElementById('meta-progreso-barra');
+  const metaSubtextoEl = document.getElementById('meta-subtexto');
+
+  if (metaProgresoTextoEl) {
+    metaProgresoTextoEl.textContent = `${formatMoney(cobradoSemanaActual)} / ${formatMoney(metaMonto)}`;
+  }
+  if (metaPorcentajeTextoEl) {
+    metaPorcentajeTextoEl.textContent = `${porcentajeMeta}%`;
+    metaPorcentajeTextoEl.style.color = porcentajeMeta >= 100 ? '#00A859' : '#00B2E3';
+  }
+  if (metaProgresoBarraEl) {
+    metaProgresoBarraEl.style.width = `${porcentajeMeta}%`;
+    if (porcentajeMeta >= 100) {
+      metaProgresoBarraEl.style.background = 'linear-gradient(90deg, #00A859, #059669)';
+    } else {
+      metaProgresoBarraEl.style.background = 'linear-gradient(90deg, #00B2E3, #00A859)';
+    }
+  }
+  if (metaSubtextoEl) {
+    const falta = Math.max(0, metaMonto - cobradoSemanaActual);
+    metaSubtextoEl.textContent = falta > 0
+      ? `Faltan ${formatMoney(falta)} para cumplir el objetivo`
+      : '¡Objetivo semanal cumplido!';
+  }
+
+  // 3. Render Racha (Semanas cerradas + estado de la semana en progreso)
+  const { rachaActual, recordHistorico } = calculateRachaSemanas();
+  const rachaNumeroEl = document.getElementById('racha-numero');
+  const rachaTituloEl = document.getElementById('racha-titulo');
+  const rachaDetalleEl = document.getElementById('racha-detalle');
+  const rachaRecordEl = document.getElementById('racha-record-label');
+
+  if (rachaNumeroEl) rachaNumeroEl.textContent = rachaActual;
+  if (rachaTituloEl) {
+    rachaTituloEl.textContent = `${rachaActual} semana${rachaActual !== 1 ? 's' : ''} cerrada${rachaActual !== 1 ? 's' : ''}`;
+  }
+  if (rachaDetalleEl) {
+    const cumplioActual = cobradoSemanaActual >= metaMonto;
+    rachaDetalleEl.textContent = cumplioActual
+      ? '¡Semana en curso cumplida!'
+      : `Semana en curso: ${porcentajeMeta}% completado`;
+  }
+  if (rachaRecordEl) {
+    rachaRecordEl.textContent = `Récord: ${recordHistorico} sem`;
+  }
+
+  // 4. Render Ranking de Morosos Priorizado
+  renderRankingMorosos();
+}
+
+function renderRankingMorosos() {
+  const container = document.getElementById('ranking-morosos-lista');
+  if (!container) return;
+
+  const ranking = calculateRankingMorosos();
+
+  if (ranking.length === 0) {
+    container.innerHTML = `
+      <div class="py-4 text-center">
+        <span class="material-symbols-outlined text-3xl text-[#00A859] mb-1">check_circle</span>
+        <p class="text-xs font-semibold text-on-surface">¡Excelente! No hay clientes con saldo deudor.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Mostrar top 5 más prioritarios
+  const topMorosos = ranking.slice(0, 5);
+
+  container.innerHTML = topMorosos
+    .map((item, idx) => {
+      const clienteEscaped = escapeHtml(item.cliente);
+      const prioridadColor = item.prioridad >= 70 ? '#DC2626' : item.prioridad >= 40 ? '#EA580C' : '#00667A';
+      const prioridadBg = item.prioridad >= 70 ? '#FEE2E2' : item.prioridad >= 40 ? '#FFEDD5' : '#E0F7FB';
+
+      return `
+        <div class="py-2.5 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background: ${prioridadBg}; color: ${prioridadColor};">
+              ${idx + 1}
+            </span>
+            <div class="min-w-0">
+              <p class="text-[13px] font-bold text-on-surface truncate">${clienteEscaped}</p>
+              <div class="flex items-center gap-2 text-[11px] text-outline truncate">
+                <span>${item.diasDeuda} días en mora</span>
+                <span>\u00B7</span>
+                <span class="font-bold text-[#DC2626]">${formatMoney(item.debe)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: ${prioridadBg}; color: ${prioridadColor};" title="Índice de prioridad 0-100">
+              P${item.prioridad}
+            </span>
+            <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90" data-cliente="${clienteEscaped}" title="Compartir cobro por WhatsApp">
+              <span class="material-symbols-outlined text-[16px]" style="color: #00A859;">share</span>
+            </button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
 }
 
 function updatePedidoFechaInfo() {
@@ -509,6 +1348,23 @@ function normalizeClienteKey(name) {
   return removeAccents(name.trim().toLowerCase()).replace(/\s+/g, ' ');
 }
 
+// ============================================
+// Cache y memoización de clientes y grupos
+// ============================================
+let cachedUniqueClientes = null;
+let cachedCanonicalMap = new Map();
+let cachedGlobalGroupMap = null;
+let cachedGlobalGroupsArray = null;
+let cachedCiclosMap = new Map();
+
+function invalidateClientesCache() {
+  cachedUniqueClientes = null;
+  cachedCanonicalMap.clear();
+  cachedGlobalGroupMap = null;
+  cachedGlobalGroupsArray = null;
+  cachedCiclosMap.clear();
+}
+
 function normalizeClienteNombre(name) {
   return name
     .trim()
@@ -520,16 +1376,22 @@ function normalizeClienteNombre(name) {
 }
 
 function getUniqueClientes() {
-  return [...new Set(movimientosData.map((m) => m.cliente.trim()).filter(Boolean))].sort((a, b) =>
+  if (cachedUniqueClientes) return cachedUniqueClientes;
+  cachedUniqueClientes = [...new Set(movimientosData.map((m) => (m.cliente ? m.cliente.trim() : '')).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, 'es')
   );
+  return cachedUniqueClientes;
 }
 
 function getCanonicalClienteNombre(nombre) {
   const key = normalizeClienteKey(nombre);
   if (!key) return normalizeClienteNombre(nombre);
+  if (cachedCanonicalMap.has(key)) return cachedCanonicalMap.get(key);
+
   const match = getUniqueClientes().find((c) => normalizeClienteKey(c) === key);
-  return match || normalizeClienteNombre(nombre);
+  const canonical = match || normalizeClienteNombre(nombre);
+  cachedCanonicalMap.set(key, canonical);
+  return canonical;
 }
 
 function findSimilarClientes(nombre, maxResults = 3) {
@@ -592,7 +1454,9 @@ function getClienteSaldo(nombre) {
   if (!group) return null;
   return {
     debe: group.debe,
-    totalPedido: group.totalPedido,
+    totalVentas: group.totalVentas,
+    totalCobrable: group.totalCobrable,
+    totalPedido: group.totalVentas,
     totalPagado: group.totalPagado,
   };
 }
@@ -1213,6 +2077,16 @@ function initNavigation() {
 
     if (!drawerOverlay.classList.contains('hidden')) closeDrawer();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (targetId === 'vista-clientes') {
+      requestAnimationFrame(() => {
+        try {
+          chartHistoricoInstance?.resize();
+          chartBarrasInstance?.resize();
+          chartDonaInstance?.resize();
+        } catch {}
+      });
+    }
   }
 
   switchViewFn = switchView;
@@ -1228,18 +2102,21 @@ function getFilteredMovimientos() {
   const nombre = document.getElementById('filtro-clientes-nombre')?.value.trim() || '';
   const fecha = document.getElementById('filtro-clientes-fecha')?.value || '';
 
+  // Filtro de filas por nombre y/o fecha
   let filtered = movimientosData.filter(
     (mov) => matchesName(mov.cliente, nombre) && matchesDate(getMovimientoFecha(mov), fecha)
   );
 
+  // El estado de deuda ('deudores' / 'al-dia') SIEMPRE se determina por el balance global del cliente,
+  // NO por los movimientos aislados del día o rango filtrado (Corrección #20).
   if (filtroSaldo !== 'todos') {
-    const groups = groupByCliente(filtered);
-    const clientes = new Set(
-      groups
-        .filter((g) => (filtroSaldo === 'deudores' ? g.debe > 0 : g.debe <= 0))
-        .map((g) => g.cliente)
+    const globalGroups = groupByCliente(movimientosData);
+    const globalClientesMap = new Set(
+      globalGroups
+        .filter((g) => (filtroSaldo === 'deudores' ? g.debe > 0.005 : g.debe <= 0.005))
+        .map((g) => normalizeClienteKey(g.cliente))
     );
-    filtered = filtered.filter((mov) => clientes.has(mov.cliente));
+    filtered = filtered.filter((mov) => globalClientesMap.has(normalizeClienteKey(mov.cliente)));
   }
 
   if (filtroOrigen === 'online') {
@@ -1249,15 +2126,31 @@ function getFilteredMovimientos() {
   return filtered;
 }
 
+// Agrupa movimientos por cliente calculando:
+// - totalVentas: volumen bruto total de todos los pedidos (incluye online/pagados)
+// - totalCobrable: pedidos que exigen cobro manual (excluye pedidos online 'pagado')
+// - totalPedido: alias compatible de totalVentas
+// - totalPagado: total de pagos manuales
+// - debe: saldo exigible (totalCobrable - totalPagado)
+// - movimientos ordenados por fecha efectiva (getMovimientoDateTime)
 function groupByCliente(movimientos) {
+  const isGlobal = movimientos === movimientosData;
+  if (isGlobal && cachedGlobalGroupsArray) {
+    return cachedGlobalGroupsArray;
+  }
+
   const groups = new Map();
 
   movimientos.forEach((mov) => {
-    const key = getCanonicalClienteNombre(mov.cliente.trim());
+    const rawName = mov.cliente ? String(mov.cliente).trim() : '';
+    if (!rawName) return;
+    const key = getCanonicalClienteNombre(rawName);
     if (!groups.has(key)) {
       groups.set(key, {
         cliente: key,
         movimientos: [],
+        totalVentas: 0,
+        totalCobrable: 0,
         totalPedido: 0,
         totalPagado: 0,
       });
@@ -1266,25 +2159,39 @@ function groupByCliente(movimientos) {
     const group = groups.get(key);
     group.movimientos.push(mov);
 
-    // Los pedidos online ya vienen pagados con Stripe antes de crearse
-    // (ver processCheckout en usuarios/tienda.js), asi que un pedido con
-    // estado 'pagado' no debe sumar deuda: ya esta saldado.
-    if (mov.tipo === 'pedido' && mov.estado !== 'pagado') {
-      group.totalPedido += Number(mov.monto);
+    if (mov.tipo === 'pedido') {
+      const monto = Number(mov.monto) || 0;
+      group.totalVentas += monto;
+      group.totalPedido += monto;
+      // Solo pedidos no pagados previamente con Stripe suman a la deuda a cobrar
+      if (mov.estado !== 'pagado') {
+        group.totalCobrable += monto;
+      }
     } else if (mov.tipo === 'pago') {
-      group.totalPagado += Number(mov.monto);
+      group.totalPagado += Number(mov.monto) || 0;
     }
   });
 
-  return Array.from(groups.values())
+  const result = Array.from(groups.values())
     .map((group) => ({
       ...group,
-      debe: group.totalPedido - group.totalPagado,
-      movimientos: group.movimientos.sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      ),
+      debe: group.totalCobrable - group.totalPagado,
+      // Orden cronológico descendente por fecha efectiva (Bug #18 / #19)
+      movimientos: group.movimientos.sort((a, b) => {
+        const diff = getMovimientoDateTime(b) - getMovimientoDateTime(a);
+        if (diff !== 0) return diff;
+        const diffCreated = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        if (diffCreated !== 0) return diffCreated;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      }),
     }))
     .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'));
+
+  if (isGlobal) {
+    cachedGlobalGroupsArray = result;
+  }
+
+  return result;
 }
 
 function renderMovimientoItem(mov) {
@@ -1358,28 +2265,37 @@ function renderMovimientoItem(mov) {
 }
 
 // Devuelve los movimientos del "ciclo actual" del cliente: los posteriores a
-// la última vez que su saldo quedó en cero o a favor. Así, cuando el cliente
-// ya se puso al día, el ciclo "se reinicia" y al compartir no se arrastran
-// fotos ni deudas de semanas o adeudos ya saldados. Si está al día ahora
-// mismo, devuelve una lista vacía.
+// la última vez que su saldo quedó en cero o a favor.
+// Ordenado por fecha efectiva ascendente (Bug #18).
 function getMovimientosCicloActual(clienteNombre) {
   const key = normalizeClienteKey(clienteNombre);
+  if (!key) return [];
+  if (cachedCiclosMap.has(key)) return cachedCiclosMap.get(key);
+
   const movs = movimientosData
     .filter((m) => normalizeClienteKey(m.cliente) === key)
     .slice()
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    .sort((a, b) => {
+      const diff = getMovimientoDateTime(a) - getMovimientoDateTime(b);
+      if (diff !== 0) return diff;
+      const diffCreated = new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      if (diffCreated !== 0) return diffCreated;
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
 
   let balance = 0;
   let inicio = 0;
   movs.forEach((m, i) => {
-    // Los pedidos ya pagados (online con Stripe) no suman deuda.
+    // Solo pedidos cobrables suman al saldo pendiente
     if (m.tipo === 'pedido' && m.estado !== 'pagado') balance += Number(m.monto);
     else if (m.tipo === 'pago') balance -= Number(m.monto);
     // Cada vez que el saldo llega a cero (o a favor), se cierra el ciclo.
     if (balance <= 0.005) inicio = i + 1;
   });
 
-  return movs.slice(inicio);
+  const ciclo = movs.slice(inicio);
+  cachedCiclosMap.set(key, ciclo);
+  return ciclo;
 }
 
 function buildClienteWhatsAppText(group) {
@@ -1397,27 +2313,58 @@ function buildClienteWhatsAppText(group) {
 }
 
 function getFotosPedidosCliente(clienteNombre, maxFotos = 12) {
+  const seen = new Set();
   const urls = [];
 
   // Solo fotos del ciclo actual (deuda vigente). Si el cliente está al día,
   // el ciclo está vacío y no se comparte ninguna foto.
   getMovimientosCicloActual(clienteNombre).forEach((m) => {
-    if (m.url_foto) urls.push(m.url_foto);
-    if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
+    const list = [];
+    if (m.url_foto) list.push(m.url_foto);
+    if (Array.isArray(m.array_urls_fotos)) list.push(...m.array_urls_fotos);
+    list.forEach((u) => {
+      const clean = typeof u === 'string' ? u.trim() : '';
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        urls.push(clean);
+      }
+    });
   });
 
   return urls.slice(0, maxFotos);
 }
 
-// Descarga las URLs y devuelve sus blobs (los que se puedan descargar).
-async function descargarFotosBlobs(urls) {
+// Descarga una imagen individual con timeout defensivo y validación
+async function fetchImageBlob(url, { timeoutMs = 12000, maxBytes = 15 * 1024 * 1024 } = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    if (!blob || blob.size === 0) throw new Error('Blob vacío');
+    if (blob.size > maxBytes) throw new Error(`Imagen excede límite (${blob.size} bytes)`);
+    return blob;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Descarga fotos con reporte de progreso opcional (onProgress(completados, total))
+async function descargarFotosBlobs(urls, onProgress) {
+  let completados = 0;
+  const total = urls.length;
   const blobs = await Promise.all(
     urls.map(async (url) => {
       try {
-        const r = await fetch(url);
-        const blob = await r.blob();
-        return blob && blob.size ? blob : null;
-      } catch {
+        const blob = await fetchImageBlob(url);
+        completados++;
+        if (typeof onProgress === 'function') onProgress(completados, total);
+        return blob;
+      } catch (err) {
+        console.warn('fetch_image_failed:', url, err);
+        completados++;
+        if (typeof onProgress === 'function') onProgress(completados, total);
         return null;
       }
     })
@@ -1425,138 +2372,428 @@ async function descargarFotosBlobs(urls) {
   return blobs.filter(Boolean);
 }
 
-// Junta varias fotos (ya descargadas como blobs) en una sola imagen
-// (cuadrícula de miniaturas). Devuelve un File, o null si no se pudo.
-async function crearCollageDesdeBlobs(blobs) {
-  if (!blobs.length) return null;
+// Decodifica un Blob a Bitmap/Image usando primero createImageBitmap (bypass de CSP)
+// con redimensionado temprano (resizeWidth) para evitar picos de memoria masivos,
+// y fallback a FileReader + dataUrl. NUNCA usa img.src = blob: dentro del generador.
+async function decodeImageBlob(blob, targetSize = 400) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const resizeOptions = {
+        imageOrientation: 'from-image',
+        resizeWidth: targetSize,
+        resizeQuality: 'high'
+      };
+      return await createImageBitmap(blob, resizeOptions);
+    } catch {
+      try {
+        return await createImageBitmap(blob, { imageOrientation: 'from-image' });
+      } catch (err) {
+        console.warn('createImageBitmap fallback to FileReader:', err);
+      }
+    }
+  }
 
-  const imgs = await Promise.all(
-    blobs.map(
-      (blob) =>
-        new Promise((resolve) => {
-          const objUrl = URL.createObjectURL(blob);
-          const img = new Image();
-          img.onload = () => resolve({ img, objUrl });
-          img.onerror = () => {
-            URL.revokeObjectURL(objUrl);
-            resolve(null);
-          };
-          img.src = objUrl;
-        })
-    )
-  ).then((arr) => arr.filter(Boolean));
-
-  if (!imgs.length) return null;
-
-  const celda = 400;
-  const gap = 8;
-  const cols = Math.ceil(Math.sqrt(imgs.length));
-  const rows = Math.ceil(imgs.length / cols);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = cols * celda + (cols + 1) * gap;
-  canvas.height = rows * celda + (rows + 1) * gap;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  imgs.forEach(({ img }, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = gap + col * (celda + gap);
-    const y = gap + row * (celda + gap);
-
-    // Recorte tipo "cover": llena la celda sin deformar la imagen.
-    const escala = Math.max(celda / img.width, celda / img.height);
-    const dw = img.width * escala;
-    const dh = img.height * escala;
-    const dx = x + (celda - dw) / 2;
-    const dy = y + (celda - dh) / 2;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, celda, celda);
-    ctx.clip();
-    ctx.drawImage(img, dx, dy, dw, dh);
-    ctx.restore();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('decode_failed_img_onerror'));
+      img.src = dataUrl;
+    };
+    reader.onerror = () => reject(new Error('filereader_failed'));
+    reader.readAsDataURL(blob);
   });
-
-  imgs.forEach(({ objUrl }) => URL.revokeObjectURL(objUrl));
-
-  const blob = await canvasToJpegBlob(canvas);
-  if (!blob) return null;
-  return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
 }
 
-// Exporta un canvas a JPEG de forma robusta. En algunos navegadores de celular
-// (WebView) canvas.toBlob no existe o devuelve null; por eso caemos a
-// toDataURL, que es más confiable en móvil.
-async function canvasToJpegBlob(canvas) {
+// Utilidad segura para dibujar rectángulos redondeados con fallback en Safari < 16.4
+function drawRoundRectSafe(ctx, x, y, width, height, radius) {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    // Fallback estándar en canvas antiguo
+    ctx.rect(x, y, width, height);
+  }
+}
+
+// Junta varias fotos en un solo collage con cabecera legible de deuda dentro del JPEG.
+// WhatsApp descarta el texto cuando lleva archivos, por lo que el estado de cuenta debe
+// dibujarse directamente en los pixeles.
+async function crearCollageDesdeBlobs(blobs, infoCliente = {}, targetWidth = 1080) {
+  if (!blobs || !blobs.length) return null;
+
+  const gap = 12;
+  const padding = 16;
+  const initialCols = blobs.length >= 5 ? 3 : blobs.length >= 2 ? 2 : 1;
+  const celdaEstimate = Math.floor((targetWidth - padding * 2 - (initialCols - 1) * gap) / initialCols);
+
+  // Decodificar todos los blobs ya redimensionados a `celdaEstimate` para no saturar memoria
+  const decodedItems = [];
+  for (const blob of blobs) {
+    try {
+      const drawable = await decodeImageBlob(blob, celdaEstimate);
+      if (drawable) decodedItems.push(drawable);
+    } catch (err) {
+      console.warn('decode_failed_item:', err);
+    }
+  }
+
+  if (!decodedItems.length) return null;
+
+  // Recalcular grid exacto con las imágenes que realmente se pudieron decodificar
+  const validCount = decodedItems.length;
+  let cols = 1;
+  if (validCount >= 5) cols = 3;
+  else if (validCount >= 2) cols = 2;
+
+  const rows = Math.ceil(validCount / cols);
+  const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
+  const celda = Math.floor(availableWidth / cols);
+  const headerHeight = Math.round(160 * (targetWidth / 1080));
+
+  const canvas = document.createElement('canvas');
+  try {
+    canvas.width = targetWidth;
+    canvas.height = headerHeight + padding + rows * celda + (rows - 1) * gap + padding;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas_context_unavailable');
+
+    // Fondo blanco general
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // --- Cabecera de cobranza dentro del JPEG ---
+    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    grad.addColorStop(0, '#002855');
+    grad.addColorStop(1, '#00B2E3');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, headerHeight);
+
+    // Marca
+    const scaleFactor = targetWidth / 1080;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `bold ${Math.round(36 * scaleFactor)}px sans-serif`;
+    ctx.fillText('Betterorden', padding + 8, Math.round(48 * scaleFactor));
+
+    // Subtítulo
+    ctx.font = `${Math.round(18 * scaleFactor)}px sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillText('Resumen de cuenta y pedidos', padding + 8, Math.round(76 * scaleFactor));
+
+    // Nombre del cliente
+    const clienteNombre = infoCliente.cliente || 'Cliente';
+    ctx.font = `bold ${Math.round(28 * scaleFactor)}px sans-serif`;
+    ctx.fillStyle = '#FFFFFF';
+    const boxWidth = Math.round(300 * scaleFactor);
+    const boxHeight = Math.round(110 * scaleFactor);
+    const boxX = canvas.width - padding - boxWidth;
+    const boxY = Math.round(25 * scaleFactor);
+
+    const maxNombreWidth = boxX - padding - 20;
+    let nombreRender = clienteNombre;
+    if (ctx.measureText(nombreRender).width > maxNombreWidth) {
+      while (nombreRender.length > 4 && ctx.measureText(nombreRender + '...').width > maxNombreWidth) {
+        nombreRender = nombreRender.slice(0, -1);
+      }
+      nombreRender += '...';
+    }
+    ctx.fillText(nombreRender, padding + 8, Math.round(126 * scaleFactor));
+
+    // Fecha / Hora de corte
+    const fechaCorte = new Date().toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    ctx.font = `${Math.round(15 * scaleFactor)}px sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillText(`Corte: ${fechaCorte}`, padding + 8, Math.round(148 * scaleFactor));
+
+    // Caja de Estado / Saldo a la derecha
+    const saldo = typeof infoCliente.debe === 'number' ? infoCliente.debe : 0;
+    const esDeuda = saldo > 0.005;
+    const esFavor = saldo < -0.005;
+
+    ctx.fillStyle = esDeuda ? '#FEF2F2' : '#ECFDF5';
+    ctx.strokeStyle = esDeuda ? '#DC2626' : '#00A859';
+    ctx.lineWidth = Math.max(2, Math.round(3 * scaleFactor));
+    ctx.beginPath();
+    drawRoundRectSafe(ctx, boxX, boxY, boxWidth, boxHeight, Math.round(14 * scaleFactor));
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = esDeuda ? '#991B1B' : '#065F46';
+    ctx.font = `bold ${Math.round(16 * scaleFactor)}px sans-serif`;
+    ctx.textAlign = 'center';
+    const labelTexto = esDeuda ? 'TOTAL A PAGAR' : esFavor ? 'SALDO A FAVOR' : 'CUENTA AL DÍA';
+    ctx.fillText(labelTexto, boxX + boxWidth / 2, boxY + Math.round(35 * scaleFactor));
+
+    ctx.font = `bold ${Math.round(32 * scaleFactor)}px sans-serif`;
+    ctx.fillStyle = esDeuda ? '#DC2626' : '#00A859';
+    const montoTexto = formatMoney(Math.abs(saldo));
+    ctx.fillText(montoTexto, boxX + boxWidth / 2, boxY + Math.round(78 * scaleFactor));
+    ctx.textAlign = 'left';
+
+    // --- Dibujar miniaturas de pedidos en cuadrícula ---
+    const gridStartY = headerHeight + padding;
+    decodedItems.forEach((img, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = padding + col * (celda + gap);
+      const y = gridStartY + row * (celda + gap);
+
+      const imgW = img.width || 1;
+      const imgH = img.height || 1;
+      const escala = Math.max(celda / imgW, celda / imgH);
+      const dw = imgW * escala;
+      const dh = imgH * escala;
+      const dx = x + (celda - dw) / 2;
+      const dy = y + (celda - dh) / 2;
+
+      ctx.save();
+      ctx.beginPath();
+      drawRoundRectSafe(ctx, x, y, celda, celda, Math.round(10 * scaleFactor));
+      ctx.clip();
+      ctx.drawImage(img, dx, dy, dw, dh);
+
+      // Borde sutil para cada foto
+      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, celda, celda);
+      ctx.restore();
+    });
+
+    let blob = await canvasToJpegBlob(canvas, 0.8);
+    // Reintento con dimensiones/calidad reducidas si exporta null (Paso 6 del plan)
+    if (!blob && targetWidth > 720) {
+      console.warn('Reintentando collage con resolución 720px y calidad 0.68...');
+      return await crearCollageDesdeBlobs(blobs, infoCliente, 720);
+    }
+
+    if (!blob) throw new Error('canvas_export_failed');
+
+    const safeCliente = (infoCliente.cliente || 'cliente').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    return new File([blob], `cobro_${safeCliente}.jpg`, { type: 'image/jpeg' });
+  } finally {
+    // Liberar memoria de ImageBitmaps
+    decodedItems.forEach((item) => {
+      if (typeof item.close === 'function') {
+        try { item.close(); } catch {}
+      }
+    });
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+// Exporta un canvas a JPEG de forma robusta. En caso de ausencia o fallo de toBlob,
+// convierte toDataURL mediante atob -> Uint8Array -> Blob sin hacer peticiones fetch (que fallarían por CSP).
+async function canvasToJpegBlob(canvas, quality = 0.8) {
   const viaToBlob = await new Promise((resolve) => {
     if (typeof canvas.toBlob !== 'function') {
       resolve(null);
       return;
     }
     try {
-      canvas.toBlob(resolve, 'image/jpeg', 0.8);
-    } catch {
+      canvas.toBlob(resolve, 'image/jpeg', quality);
+    } catch (err) {
+      console.warn('canvas.toBlob failed:', err);
       resolve(null);
     }
   });
   if (viaToBlob) return viaToBlob;
 
   try {
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-    const res = await fetch(dataUrl);
-    return await res.blob();
-  } catch {
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    const parts = dataUrl.split(',');
+    if (parts.length !== 2) throw new Error('data_url_invalid');
+    const binary = atob(parts[1]);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'image/jpeg' });
+  } catch (err) {
+    console.error('canvasToJpegBlob fallback conversion error:', err);
     return null;
   }
 }
 
-async function shareClienteWhatsApp(clienteNombre) {
+// Estado del modal de compartir en 2 tiempos
+let currentShareState = {
+  clienteNombre: '',
+  group: null,
+  text: '',
+  file: null,
+  previewObjectUrl: null,
+};
+
+function cleanupShareModalState() {
+  if (currentShareState.previewObjectUrl) {
+    URL.revokeObjectURL(currentShareState.previewObjectUrl);
+    currentShareState.previewObjectUrl = null;
+  }
+  currentShareState = {
+    clienteNombre: '',
+    group: null,
+    text: '',
+    file: null,
+    previewObjectUrl: null,
+  };
+}
+
+// Abre el modal de compartir y prepara el collage en segundo plano.
+// El tap final en "Compartir WhatsApp" será el que invoque navigator.share de forma inmediata
+// para no perder la activación de usuario en Safari / WebViews.
+async function openShareClienteModal(clienteNombre) {
   if (!clienteNombre) return;
   const group = groupByCliente(movimientosData).find(
     (g) => normalizeClienteKey(g.cliente) === normalizeClienteKey(clienteNombre)
   );
   if (!group) return;
 
+  cleanupShareModalState();
+
+  const modal = document.getElementById('modal-compartir-cobro');
+  const infoEl = document.getElementById('modal-compartir-info');
+  const progresoEl = document.getElementById('modal-compartir-progreso');
+  const progresoTexto = document.getElementById('modal-compartir-progreso-texto');
+  const previewWrap = document.getElementById('modal-compartir-preview-wrap');
+  const previewImg = document.getElementById('modal-compartir-preview-img');
+  const errorEl = document.getElementById('modal-compartir-error');
+  const btnDescargar = document.getElementById('modal-compartir-btn-descargar');
+  const btnShare = document.getElementById('modal-compartir-btn-share');
+
+  if (!modal) {
+    // Fallback si no está el modal en DOM
+    await shareClienteWhatsAppDirect(group);
+    return;
+  }
+
   const text = buildClienteWhatsAppText(group);
+  currentShareState.clienteNombre = clienteNombre;
+  currentShareState.group = group;
+  currentShareState.text = text;
+
+  const saldoColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#00A859' : '#00B2E3';
+  const saldoLabel = group.debe > 0 ? 'Debe' : group.debe < 0 ? 'Saldo a favor' : 'Al corriente';
+  infoEl.innerHTML = `
+    <div class="flex justify-between items-center">
+      <span class="font-bold text-base text-on-surface">${escapeHtml(group.cliente)}</span>
+      <span class="font-bold px-2.5 py-0.5 rounded-full text-xs" style="background: ${saldoColor}18; color: ${saldoColor};">
+        ${saldoLabel}: ${formatMoney(Math.abs(group.debe))}
+      </span>
+    </div>
+    <p class="text-xs text-outline mt-1">Se preparará el resumen para compartir por WhatsApp.</p>
+  `;
+
+  progresoEl.classList.remove('hidden');
+  previewWrap.classList.add('hidden');
+  errorEl.classList.add('hidden');
+  btnDescargar.classList.add('hidden');
+  modal.classList.remove('hidden');
+
   const fotoUrls = getFotosPedidosCliente(clienteNombre);
 
-  // El link wa.me solo soporta texto. Para incluir las fotos usamos el share
-  // nativo del dispositivo (funciona en celular, donde se usa esta app como
-  // PWA). Intentamos juntarlas en una sola imagen de miniaturas para no llenar
-  // el chat; si el collage falla, mandamos las fotos individuales; y si el
-  // dispositivo no soporta compartir archivos, se comparte solo el texto.
-  if (fotoUrls.length && navigator.share && navigator.canShare) {
-    try {
-      const blobs = await descargarFotosBlobs(fotoUrls);
+  if (!fotoUrls.length) {
+    progresoEl.classList.add('hidden');
+    infoEl.innerHTML += `<p class="text-xs text-on-surface-variant mt-2 italic">Sin fotos de pedidos en el ciclo actual. Se compartirá resumen en texto.</p>`;
+    return;
+  }
 
-      if (blobs.length) {
-        let files = [];
-        const collage = await crearCollageDesdeBlobs(blobs).catch(() => null);
+  progresoTexto.textContent = `Descargando fotos (0/${fotoUrls.length})...`;
 
-        if (collage) {
-          files = [collage];
-        } else {
-          files = blobs.map(
-            (b, i) => new File([b], `foto-${i + 1}.jpg`, { type: b.type || 'image/jpeg' })
-          );
-        }
+  try {
+    const blobs = await descargarFotosBlobs(fotoUrls, (completados, total) => {
+      progresoTexto.textContent = `Descargando fotos (${completados}/${total})...`;
+    });
 
-        if (files.length && navigator.canShare({ files })) {
-          await navigator.share({ text, files });
-          return;
-        }
+    if (blobs.length) {
+      progresoTexto.textContent = 'Generando collage con cabecera de cuenta...';
+      const file = await crearCollageDesdeBlobs(blobs, {
+        cliente: group.cliente,
+        debe: group.debe
+      });
+
+      if (file) {
+        currentShareState.file = file;
+        currentShareState.previewObjectUrl = URL.createObjectURL(file);
+        previewImg.src = currentShareState.previewObjectUrl;
+        previewWrap.classList.remove('hidden');
+        btnDescargar.classList.remove('hidden');
       }
-    } catch (err) {
-      if (err?.name === 'AbortError') return;
-      console.warn('No se pudo compartir con fotos, se comparte solo el texto:', err);
+    }
+  } catch (err) {
+    console.error('collage_preparation_failed:', err);
+    errorEl.textContent = 'No se pudo generar el collage de imágenes. Se podrá compartir el mensaje de texto.';
+    errorEl.classList.remove('hidden');
+  } finally {
+    progresoEl.classList.add('hidden');
+  }
+}
+
+// Acción inmediata al pulsar "Compartir WhatsApp" en el modal.
+// Se invoca navigator.share PRIMERO para no consumir la activación del usuario (gesture token).
+async function executeShareFromModal() {
+  const { group, text, file } = currentShareState;
+  if (!group) return;
+
+  const modal = document.getElementById('modal-compartir-cobro');
+
+  // Copiar al portapapeles en segundo plano sin bloquear (sin await antes de share)
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).then(() => {
+      showSuccessToast('Mensaje copiado al portapapeles');
+    }).catch(() => {});
+  }
+
+  if (file && navigator.share && navigator.canShare) {
+    const sharePayload = { files: [file] };
+    if (navigator.canShare(sharePayload)) {
+      try {
+        await navigator.share({
+          title: `Betterorden - ${group.cliente}`,
+          text: text,
+          files: [file]
+        });
+        if (modal) modal.classList.add('hidden');
+        cleanupShareModalState();
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        console.warn('navigator.share with collage failed:', err);
+      }
     }
   }
 
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `Betterorden - ${group.cliente}`,
+        text: text
+      });
+      if (modal) modal.classList.add('hidden');
+      cleanupShareModalState();
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+
+  // Si no hay Web Share, abrir WhatsApp Web / App
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  if (modal) modal.classList.add('hidden');
+  cleanupShareModalState();
+}
+
+// Fallback de compatibilidad
+async function shareClienteWhatsApp(clienteNombre) {
+  openShareClienteModal(clienteNombre);
 }
 
 function renderClientes() {
@@ -1609,9 +2846,10 @@ function renderClientes() {
                 <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Compartir por WhatsApp">
                   <span class="material-symbols-outlined text-[14px]" style="color: #00A859;">share</span>
                 </button>
-                <div class="flex gap-3 mt-0.5 text-[11px] text-outline">
-                  <span>Pedido: ${formatMoney(group.totalPedido)}</span>
+                <div class="flex gap-3 mt-0.5 text-[11px] text-outline flex-wrap">
+                  <span>Cobrable: ${formatMoney(group.totalCobrable)}</span>
                   <span>Pagado: ${formatMoney(group.totalPagado)}</span>
+                  ${group.totalVentas !== group.totalCobrable ? `<span>Total pedidos: ${formatMoney(group.totalVentas)}</span>` : ''}
                 </div>
               </div>
               <div class="text-right shrink-0">
@@ -1644,11 +2882,14 @@ async function fetchMovimientos() {
     if (error) throw error;
 
     movimientosData = data || [];
+    invalidateClientesCache();
     await fetchPerfilesAdmin();
     refreshClienteDatalist();
     renderClientes();
     renderPedidosSemanales();
     renderHistorialSemanas();
+    updateCharts();
+    renderGamificacion();
     requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
   } catch (err) {
     console.error(err);
@@ -1957,8 +3198,14 @@ async function handleAltasSubmit(event) {
 function updateChipCounts() {
   const groups = groupByCliente(movimientosData);
   const total = groups.length;
-  const deudores = groups.filter((g) => g.debe > 0).length;
+  const deudores = groups.filter((g) => g.debe > 0.005).length;
   const alDia = total - deudores;
+
+  const onlineClientKeys = new Set(
+    movimientosData
+      .filter((m) => m.origen === 'online' && m.cliente)
+      .map((m) => normalizeClienteKey(m.cliente))
+  );
 
   const setCount = (id, val) => {
     const el = document.getElementById(id);
@@ -1967,11 +3214,11 @@ function updateChipCounts() {
   setCount('count-todos', total);
   setCount('count-deudores', deudores);
   setCount('count-al-dia', alDia);
-  setCount('count-online', movimientosData.filter((m) => m.origen === 'online').length);
+  setCount('count-online', onlineClientKeys.size);
 
   const allAsoc = asociadosData.length;
-  const deudoresSet = new Set(groups.filter((g) => g.debe > 0).map((g) => g.cliente.toLowerCase()));
-  const asocDeudores = asociadosData.filter((a) => deudoresSet.has(a.nombre_nuevo.trim().toLowerCase())).length;
+  const deudoresSet = new Set(groups.filter((g) => g.debe > 0.005).map((g) => normalizeClienteKey(g.cliente)));
+  const asocDeudores = asociadosData.filter((a) => a.nombre_nuevo && deudoresSet.has(normalizeClienteKey(a.nombre_nuevo))).length;
   const asocAlDia = allAsoc - asocDeudores;
 
   setCount('count-altas-todos', allAsoc);
@@ -1987,7 +3234,7 @@ function updateChipCounts() {
   );
   const semanalSaldoMap = new Map(groups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
   const semanalDeudores = semanalGroups.filter(
-    (g) => (semanalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0
+    (g) => (semanalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0.005
   ).length;
   const semanalAlDia = semanalGroups.length - semanalDeudores;
 
@@ -2104,7 +3351,8 @@ function computeSemanaResumenStats(groups) {
   const allGroups = groupByCliente(movimientosData);
   const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
-  const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
+  // totalMonto representa el volumen total vendido de los pedidos de la semana
+  const totalMonto = groups.reduce((sum, g) => sum + (g.totalVentas || g.totalPedido || 0), 0);
   const numClientes = groups.length;
   const numPedidos = groups.reduce(
     (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
@@ -2346,19 +3594,19 @@ function renderHistorialSemanas() {
 
       return `
         <div class="mb-2">
-          <button type="button" class="semana-toggle w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-colors" style="background: #F3F4F6;" data-week="${weekKey}">
-            <div>
+          <div class="semana-toggle-bar w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-[#00B2E3]" style="background: #F3F4F6;" data-week="${weekKey}" role="button" tabindex="0" aria-expanded="false">
+            <div class="semana-title-area flex-1">
               <p class="text-[13px] font-bold text-on-surface">Semana del ${label}</p>
               <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
             </div>
             <div class="flex items-center gap-2">
-              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full" style="background: #00A859;" data-share-week="${weekKey}">
+              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full z-10 active:scale-95 transition-transform" style="background: #00A859;" data-share-week="${weekKey}">
                 <span class="material-symbols-outlined text-[14px]">share</span>
                 Compartir
               </button>
               <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
             </div>
-          </button>
+          </div>
           <div class="semana-pedidos hidden px-4 pb-3" data-week-content="${weekKey}">
             ${clientsHtml}
           </div>
@@ -2367,14 +3615,28 @@ function renderHistorialSemanas() {
     })
     .join('');
 
-  container.querySelectorAll('.semana-toggle').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const week = btn.dataset.week;
+  container.querySelectorAll('.semana-toggle-bar').forEach((bar) => {
+    const toggleSemana = () => {
+      const week = bar.dataset.week;
       const content = container.querySelector(`[data-week-content="${week}"]`);
-      const chevron = btn.querySelector('.semana-chevron');
+      const chevron = bar.querySelector('.semana-chevron');
       if (content) {
-        content.classList.toggle('hidden');
-        if (chevron) chevron.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
+        const isHidden = content.classList.toggle('hidden');
+        bar.setAttribute('aria-expanded', String(!isHidden));
+        if (chevron) chevron.style.transform = isHidden ? '' : 'rotate(180deg)';
+      }
+    };
+
+    bar.addEventListener('click', (e) => {
+      if (e.target.closest('.share-week-btn')) return;
+      toggleSemana();
+    });
+
+    bar.addEventListener('keydown', (e) => {
+      if (e.target.closest('.share-week-btn')) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleSemana();
       }
     });
   });
@@ -2426,6 +3688,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDownloadDelegation('historial-altas');
   setupEditDelegation('historial-clientes', 'movimiento');
   setupEditDelegation('historial-altas', 'asociado');
+  setupEditDelegation('ranking-morosos-lista');
 
   setupClienteAutocomplete();
   initModal();
@@ -2470,6 +3733,70 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('historial-semanas')?.addEventListener('click', (event) => {
     const btn = event.target.closest('.share-week-btn');
     if (btn) shareResumenSemana(btn.dataset.shareWeek);
+  });
+
+  // Modal Compartir Cobro Listeners
+  const modalShare = document.getElementById('modal-compartir-cobro');
+  const closeShareModal = () => {
+    if (modalShare) modalShare.classList.add('hidden');
+    cleanupShareModalState();
+  };
+  document.getElementById('modal-compartir-cerrar')?.addEventListener('click', closeShareModal);
+  document.getElementById('modal-compartir-cancelar')?.addEventListener('click', closeShareModal);
+  document.getElementById('modal-compartir-btn-share')?.addEventListener('click', executeShareFromModal);
+  document.getElementById('modal-compartir-btn-copiar')?.addEventListener('click', async () => {
+    if (currentShareState.text && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(currentShareState.text);
+        showSuccessToast('Mensaje copiado al portapapeles');
+      } catch {
+        showSuccessToast('No se pudo copiar');
+      }
+    }
+  });
+  document.getElementById('modal-compartir-btn-descargar')?.addEventListener('click', () => {
+    if (currentShareState.file && currentShareState.previewObjectUrl) {
+      const a = document.createElement('a');
+      a.href = currentShareState.previewObjectUrl;
+      a.download = currentShareState.file.name || 'cobro.jpg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showSuccessToast('Descargando imagen...');
+    }
+  });
+  // Modal Meta Semanal Listeners
+  const modalMeta = document.getElementById('modal-meta');
+  const inputMeta = document.getElementById('input-meta-monto');
+  const inputDeudaRef = document.getElementById('input-deuda-ref-monto');
+  const openMetaModal = () => {
+    if (!modalMeta) return;
+    if (inputMeta) inputMeta.value = getStoredMetaSemanal();
+    if (inputDeudaRef) inputDeudaRef.value = getStoredDeudaAltaRef();
+    modalMeta.classList.remove('hidden');
+    inputMeta?.focus();
+  };
+  const closeMetaModal = () => {
+    if (modalMeta) modalMeta.classList.add('hidden');
+  };
+
+  document.getElementById('btn-editar-meta')?.addEventListener('click', openMetaModal);
+  document.getElementById('modal-meta-cerrar')?.addEventListener('click', closeMetaModal);
+  document.getElementById('modal-meta-cancelar')?.addEventListener('click', closeMetaModal);
+  document.getElementById('modal-meta-guardar')?.addEventListener('click', () => {
+    const valMeta = parseFloat(inputMeta?.value);
+    const valDeuda = parseFloat(inputDeudaRef?.value);
+    if (Number.isNaN(valMeta) || valMeta <= 0) {
+      alert('Ingresa un monto de meta válido mayor a 0');
+      return;
+    }
+    setStoredMetaSemanal(valMeta);
+    if (!Number.isNaN(valDeuda) && valDeuda > 0) {
+      setStoredDeudaAltaRef(valDeuda);
+    }
+    renderGamificacion();
+    closeMetaModal();
+    showSuccessToast('Configuración actualizada');
   });
 
   updatePedidoFechaInfo();
