@@ -165,6 +165,29 @@ function getMovimientoFecha(mov) {
   return mov.fecha || mov.created_at;
 }
 
+// Devuelve un timestamp numérico (ms) basado en la fecha efectiva (fecha + hora).
+// Permite ordenar movimientos cronológicamente de forma real incluso si un pago
+// o pedido fue cargado retroactivamente.
+function getMovimientoDateTime(mov) {
+  if (!mov) return 0;
+  const fechaStr = normalizeDate(mov.fecha || mov.created_at);
+  let horaStr = mov.hora || '';
+  if (!horaStr && mov.created_at) {
+    const d = new Date(mov.created_at);
+    if (!Number.isNaN(d.getTime())) {
+      horaStr = d.toTimeString().slice(0, 8);
+    }
+  }
+  if (!horaStr) horaStr = '00:00:00';
+
+  const combined = new Date(`${fechaStr}T${horaStr}`);
+  const ts = combined.getTime();
+  if (!Number.isNaN(ts)) return ts;
+
+  const fallback = new Date(mov.created_at || mov.fecha).getTime();
+  return Number.isNaN(fallback) ? 0 : fallback;
+}
+
 function setButtonLoading(button, isLoading, loadingText = 'Cargando...') {
   if (!button) return;
   if (isLoading) {
@@ -1229,18 +1252,21 @@ function getFilteredMovimientos() {
   const nombre = document.getElementById('filtro-clientes-nombre')?.value.trim() || '';
   const fecha = document.getElementById('filtro-clientes-fecha')?.value || '';
 
+  // Filtro de filas por nombre y/o fecha
   let filtered = movimientosData.filter(
     (mov) => matchesName(mov.cliente, nombre) && matchesDate(getMovimientoFecha(mov), fecha)
   );
 
+  // El estado de deuda ('deudores' / 'al-dia') SIEMPRE se determina por el balance global del cliente,
+  // NO por los movimientos aislados del día o rango filtrado (Corrección #20).
   if (filtroSaldo !== 'todos') {
-    const groups = groupByCliente(filtered);
-    const clientes = new Set(
-      groups
-        .filter((g) => (filtroSaldo === 'deudores' ? g.debe > 0 : g.debe <= 0))
-        .map((g) => g.cliente)
+    const globalGroups = groupByCliente(movimientosData);
+    const globalClientesMap = new Set(
+      globalGroups
+        .filter((g) => (filtroSaldo === 'deudores' ? g.debe > 0.005 : g.debe <= 0.005))
+        .map((g) => normalizeClienteKey(g.cliente))
     );
-    filtered = filtered.filter((mov) => clientes.has(mov.cliente));
+    filtered = filtered.filter((mov) => globalClientesMap.has(normalizeClienteKey(mov.cliente)));
   }
 
   if (filtroOrigen === 'online') {
@@ -1250,15 +1276,26 @@ function getFilteredMovimientos() {
   return filtered;
 }
 
+// Agrupa movimientos por cliente calculando:
+// - totalVentas: volumen bruto total de todos los pedidos (incluye online/pagados)
+// - totalCobrable: pedidos que exigen cobro manual (excluye pedidos online 'pagado')
+// - totalPedido: alias compatible de totalVentas
+// - totalPagado: total de pagos manuales
+// - debe: saldo exigible (totalCobrable - totalPagado)
+// - movimientos ordenados por fecha efectiva (getMovimientoDateTime)
 function groupByCliente(movimientos) {
   const groups = new Map();
 
   movimientos.forEach((mov) => {
-    const key = getCanonicalClienteNombre(mov.cliente.trim());
+    const rawName = mov.cliente ? String(mov.cliente).trim() : '';
+    if (!rawName) return;
+    const key = getCanonicalClienteNombre(rawName);
     if (!groups.has(key)) {
       groups.set(key, {
         cliente: key,
         movimientos: [],
+        totalVentas: 0,
+        totalCobrable: 0,
         totalPedido: 0,
         totalPagado: 0,
       });
@@ -1267,23 +1304,31 @@ function groupByCliente(movimientos) {
     const group = groups.get(key);
     group.movimientos.push(mov);
 
-    // Los pedidos online ya vienen pagados con Stripe antes de crearse
-    // (ver processCheckout en usuarios/tienda.js), asi que un pedido con
-    // estado 'pagado' no debe sumar deuda: ya esta saldado.
-    if (mov.tipo === 'pedido' && mov.estado !== 'pagado') {
-      group.totalPedido += Number(mov.monto);
+    if (mov.tipo === 'pedido') {
+      const monto = Number(mov.monto) || 0;
+      group.totalVentas += monto;
+      group.totalPedido += monto;
+      // Solo pedidos no pagados previamente con Stripe suman a la deuda a cobrar
+      if (mov.estado !== 'pagado') {
+        group.totalCobrable += monto;
+      }
     } else if (mov.tipo === 'pago') {
-      group.totalPagado += Number(mov.monto);
+      group.totalPagado += Number(mov.monto) || 0;
     }
   });
 
   return Array.from(groups.values())
     .map((group) => ({
       ...group,
-      debe: group.totalPedido - group.totalPagado,
-      movimientos: group.movimientos.sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      ),
+      debe: group.totalCobrable - group.totalPagado,
+      // Orden cronológico descendente por fecha efectiva (Bug #18 / #19)
+      movimientos: group.movimientos.sort((a, b) => {
+        const diff = getMovimientoDateTime(b) - getMovimientoDateTime(a);
+        if (diff !== 0) return diff;
+        const diffCreated = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+        if (diffCreated !== 0) return diffCreated;
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      }),
     }))
     .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'));
 }
@@ -1359,21 +1404,25 @@ function renderMovimientoItem(mov) {
 }
 
 // Devuelve los movimientos del "ciclo actual" del cliente: los posteriores a
-// la última vez que su saldo quedó en cero o a favor. Así, cuando el cliente
-// ya se puso al día, el ciclo "se reinicia" y al compartir no se arrastran
-// fotos ni deudas de semanas o adeudos ya saldados. Si está al día ahora
-// mismo, devuelve una lista vacía.
+// la última vez que su saldo quedó en cero o a favor.
+// Ordenado por fecha efectiva ascendente (Bug #18).
 function getMovimientosCicloActual(clienteNombre) {
   const key = normalizeClienteKey(clienteNombre);
   const movs = movimientosData
     .filter((m) => normalizeClienteKey(m.cliente) === key)
     .slice()
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    .sort((a, b) => {
+      const diff = getMovimientoDateTime(a) - getMovimientoDateTime(b);
+      if (diff !== 0) return diff;
+      const diffCreated = new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      if (diffCreated !== 0) return diffCreated;
+      return (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
 
   let balance = 0;
   let inicio = 0;
   movs.forEach((m, i) => {
-    // Los pedidos ya pagados (online con Stripe) no suman deuda.
+    // Solo pedidos cobrables suman al saldo pendiente
     if (m.tipo === 'pedido' && m.estado !== 'pagado') balance += Number(m.monto);
     else if (m.tipo === 'pago') balance -= Number(m.monto);
     // Cada vez que el saldo llega a cero (o a favor), se cierra el ciclo.
@@ -2276,8 +2325,14 @@ async function handleAltasSubmit(event) {
 function updateChipCounts() {
   const groups = groupByCliente(movimientosData);
   const total = groups.length;
-  const deudores = groups.filter((g) => g.debe > 0).length;
+  const deudores = groups.filter((g) => g.debe > 0.005).length;
   const alDia = total - deudores;
+
+  const onlineClientKeys = new Set(
+    movimientosData
+      .filter((m) => m.origen === 'online' && m.cliente)
+      .map((m) => normalizeClienteKey(m.cliente))
+  );
 
   const setCount = (id, val) => {
     const el = document.getElementById(id);
@@ -2286,11 +2341,11 @@ function updateChipCounts() {
   setCount('count-todos', total);
   setCount('count-deudores', deudores);
   setCount('count-al-dia', alDia);
-  setCount('count-online', movimientosData.filter((m) => m.origen === 'online').length);
+  setCount('count-online', onlineClientKeys.size);
 
   const allAsoc = asociadosData.length;
-  const deudoresSet = new Set(groups.filter((g) => g.debe > 0).map((g) => g.cliente.toLowerCase()));
-  const asocDeudores = asociadosData.filter((a) => deudoresSet.has(a.nombre_nuevo.trim().toLowerCase())).length;
+  const deudoresSet = new Set(groups.filter((g) => g.debe > 0.005).map((g) => normalizeClienteKey(g.cliente)));
+  const asocDeudores = asociadosData.filter((a) => a.nombre_nuevo && deudoresSet.has(normalizeClienteKey(a.nombre_nuevo))).length;
   const asocAlDia = allAsoc - asocDeudores;
 
   setCount('count-altas-todos', allAsoc);
@@ -2306,7 +2361,7 @@ function updateChipCounts() {
   );
   const semanalSaldoMap = new Map(groups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
   const semanalDeudores = semanalGroups.filter(
-    (g) => (semanalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0
+    (g) => (semanalSaldoMap.get(normalizeClienteKey(g.cliente)) || 0) > 0.005
   ).length;
   const semanalAlDia = semanalGroups.length - semanalDeudores;
 
@@ -2423,7 +2478,8 @@ function computeSemanaResumenStats(groups) {
   const allGroups = groupByCliente(movimientosData);
   const saldoMap = new Map(allGroups.map((g) => [normalizeClienteKey(g.cliente), g.debe]));
 
-  const totalMonto = groups.reduce((sum, g) => sum + g.totalPedido, 0);
+  // totalMonto representa el volumen total vendido de los pedidos de la semana
+  const totalMonto = groups.reduce((sum, g) => sum + (g.totalVentas || g.totalPedido || 0), 0);
   const numClientes = groups.length;
   const numPedidos = groups.reduce(
     (sum, g) => sum + g.movimientos.filter((m) => m.tipo === 'pedido').length,
