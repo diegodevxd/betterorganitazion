@@ -145,12 +145,13 @@ function matchesDate(recordDate, filterDate) {
 
 function getInitials(nombre) {
   if (!nombre) return '?';
-  return nombre
+  const raw = String(nombre)
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
     .join('');
+  return escapeHtml(raw || '?');
 }
 
 function formatMoney(total) {
@@ -1397,27 +1398,58 @@ function buildClienteWhatsAppText(group) {
 }
 
 function getFotosPedidosCliente(clienteNombre, maxFotos = 12) {
+  const seen = new Set();
   const urls = [];
 
   // Solo fotos del ciclo actual (deuda vigente). Si el cliente está al día,
   // el ciclo está vacío y no se comparte ninguna foto.
   getMovimientosCicloActual(clienteNombre).forEach((m) => {
-    if (m.url_foto) urls.push(m.url_foto);
-    if (Array.isArray(m.array_urls_fotos)) urls.push(...m.array_urls_fotos);
+    const list = [];
+    if (m.url_foto) list.push(m.url_foto);
+    if (Array.isArray(m.array_urls_fotos)) list.push(...m.array_urls_fotos);
+    list.forEach((u) => {
+      const clean = typeof u === 'string' ? u.trim() : '';
+      if (clean && !seen.has(clean)) {
+        seen.add(clean);
+        urls.push(clean);
+      }
+    });
   });
 
   return urls.slice(0, maxFotos);
 }
 
-// Descarga las URLs y devuelve sus blobs (los que se puedan descargar).
-async function descargarFotosBlobs(urls) {
+// Descarga una imagen individual con timeout defensivo y validación
+async function fetchImageBlob(url, { timeoutMs = 12000, maxBytes = 15 * 1024 * 1024 } = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    if (!blob || blob.size === 0) throw new Error('Blob vacío');
+    if (blob.size > maxBytes) throw new Error(`Imagen excede límite (${blob.size} bytes)`);
+    return blob;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Descarga fotos con reporte de progreso opcional (onProgress(completados, total))
+async function descargarFotosBlobs(urls, onProgress) {
+  let completados = 0;
+  const total = urls.length;
   const blobs = await Promise.all(
     urls.map(async (url) => {
       try {
-        const r = await fetch(url);
-        const blob = await r.blob();
-        return blob && blob.size ? blob : null;
-      } catch {
+        const blob = await fetchImageBlob(url);
+        completados++;
+        if (typeof onProgress === 'function') onProgress(completados, total);
+        return blob;
+      } catch (err) {
+        console.warn('fetch_image_failed:', url, err);
+        completados++;
+        if (typeof onProgress === 'function') onProgress(completados, total);
         return null;
       }
     })
@@ -1425,138 +1457,400 @@ async function descargarFotosBlobs(urls) {
   return blobs.filter(Boolean);
 }
 
-// Junta varias fotos (ya descargadas como blobs) en una sola imagen
-// (cuadrícula de miniaturas). Devuelve un File, o null si no se pudo.
-async function crearCollageDesdeBlobs(blobs) {
-  if (!blobs.length) return null;
+// Decodifica un Blob a Bitmap/Image usando primero createImageBitmap (bypass de CSP)
+// y fallback a FileReader + dataUrl. NUNCA usa img.src = blob: dentro del generador.
+async function decodeImageBlob(blob) {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(blob, { imageOrientation: 'from-image' });
+    } catch (err) {
+      console.warn('createImageBitmap fallback to FileReader:', err);
+    }
+  }
 
-  const imgs = await Promise.all(
-    blobs.map(
-      (blob) =>
-        new Promise((resolve) => {
-          const objUrl = URL.createObjectURL(blob);
-          const img = new Image();
-          img.onload = () => resolve({ img, objUrl });
-          img.onerror = () => {
-            URL.revokeObjectURL(objUrl);
-            resolve(null);
-          };
-          img.src = objUrl;
-        })
-    )
-  ).then((arr) => arr.filter(Boolean));
-
-  if (!imgs.length) return null;
-
-  const celda = 400;
-  const gap = 8;
-  const cols = Math.ceil(Math.sqrt(imgs.length));
-  const rows = Math.ceil(imgs.length / cols);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = cols * celda + (cols + 1) * gap;
-  canvas.height = rows * celda + (rows + 1) * gap;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  imgs.forEach(({ img }, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = gap + col * (celda + gap);
-    const y = gap + row * (celda + gap);
-
-    // Recorte tipo "cover": llena la celda sin deformar la imagen.
-    const escala = Math.max(celda / img.width, celda / img.height);
-    const dw = img.width * escala;
-    const dh = img.height * escala;
-    const dx = x + (celda - dw) / 2;
-    const dy = y + (celda - dh) / 2;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, celda, celda);
-    ctx.clip();
-    ctx.drawImage(img, dx, dy, dw, dh);
-    ctx.restore();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('decode_failed_img_onerror'));
+      img.src = dataUrl;
+    };
+    reader.onerror = () => reject(new Error('filereader_failed'));
+    reader.readAsDataURL(blob);
   });
-
-  imgs.forEach(({ objUrl }) => URL.revokeObjectURL(objUrl));
-
-  const blob = await canvasToJpegBlob(canvas);
-  if (!blob) return null;
-  return new File([blob], 'fotos-cliente.jpg', { type: 'image/jpeg' });
 }
 
-// Exporta un canvas a JPEG de forma robusta. En algunos navegadores de celular
-// (WebView) canvas.toBlob no existe o devuelve null; por eso caemos a
-// toDataURL, que es más confiable en móvil.
-async function canvasToJpegBlob(canvas) {
+// Junta varias fotos en un solo collage con cabecera legible de deuda dentro del JPEG.
+// WhatsApp descarta el texto cuando lleva archivos, por lo que el estado de cuenta debe
+// dibujarse directamente en los pixeles.
+async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
+  if (!blobs || !blobs.length) return null;
+
+  // Decodificar todos los blobs
+  const decodedItems = [];
+  for (const blob of blobs) {
+    try {
+      const drawable = await decodeImageBlob(blob);
+      if (drawable) decodedItems.push(drawable);
+    } catch (err) {
+      console.warn('decode_failed_item:', err);
+    }
+  }
+
+  if (!decodedItems.length) return null;
+
+  const canvas = document.createElement('canvas');
+  try {
+    const targetWidth = 1080;
+    const gap = 12;
+    const padding = 16;
+    const count = decodedItems.length;
+
+    let cols = 1;
+    if (count >= 5) cols = 3;
+    else if (count >= 2) cols = 2;
+
+    const rows = Math.ceil(count / cols);
+    const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
+    const celda = Math.floor(availableWidth / cols);
+    const headerHeight = 160;
+
+    canvas.width = targetWidth;
+    canvas.height = headerHeight + padding + rows * celda + (rows - 1) * gap + padding;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas_context_unavailable');
+
+    // Fondo blanco general
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // --- Cabecera de cobranza dentro del JPEG ---
+    // Fondo de cabecera degradado profesional Betterorden
+    const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+    grad.addColorStop(0, '#002855');
+    grad.addColorStop(1, '#00B2E3');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, headerHeight);
+
+    // Marca
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('Betterorden', padding + 8, 48);
+
+    // Subtítulo / Marca secundaria
+    ctx.font = '18px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fillText('Resumen de cuenta y pedidos', padding + 8, 76);
+
+    // Nombre del cliente
+    const clienteNombre = infoCliente.cliente || 'Cliente';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#FFFFFF';
+    const maxNombreWidth = canvas.width - (padding * 2) - 340;
+    let nombreRender = clienteNombre;
+    if (ctx.measureText(nombreRender).width > maxNombreWidth) {
+      while (nombreRender.length > 4 && ctx.measureText(nombreRender + '...').width > maxNombreWidth) {
+        nombreRender = nombreRender.slice(0, -1);
+      }
+      nombreRender += '...';
+    }
+    ctx.fillText(nombreRender, padding + 8, 126);
+
+    // Fecha / Hora de corte
+    const fechaCorte = new Date().toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    ctx.font = '15px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fillText(`Corte: ${fechaCorte}`, padding + 8, 148);
+
+    // Caja de Estado / Saldo a la derecha
+    const saldo = typeof infoCliente.debe === 'number' ? infoCliente.debe : 0;
+    const esDeuda = saldo > 0.005;
+    const esFavor = saldo < -0.005;
+
+    const boxWidth = 300;
+    const boxHeight = 110;
+    const boxX = canvas.width - padding - boxWidth;
+    const boxY = 25;
+
+    ctx.fillStyle = esDeuda ? '#FEF2F2' : '#ECFDF5';
+    ctx.strokeStyle = esDeuda ? '#DC2626' : '#00A859';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = esDeuda ? '#991B1B' : '#065F46';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    const labelTexto = esDeuda ? 'TOTAL A PAGAR' : esFavor ? 'SALDO A FAVOR' : 'CUENTA AL DÍA';
+    ctx.fillText(labelTexto, boxX + boxWidth / 2, boxY + 35);
+
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillStyle = esDeuda ? '#DC2626' : '#00A859';
+    const montoTexto = formatMoney(Math.abs(saldo));
+    ctx.fillText(montoTexto, boxX + boxWidth / 2, boxY + 78);
+    ctx.textAlign = 'left';
+
+    // --- Dibujar miniaturas de pedidos en cuadrícula ---
+    const gridStartY = headerHeight + padding;
+    decodedItems.forEach((img, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = padding + col * (celda + gap);
+      const y = gridStartY + row * (celda + gap);
+
+      const imgW = img.width || 1;
+      const imgH = img.height || 1;
+      const escala = Math.max(celda / imgW, celda / imgH);
+      const dw = imgW * escala;
+      const dh = imgH * escala;
+      const dx = x + (celda - dw) / 2;
+      const dy = y + (celda - dh) / 2;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, y, celda, celda, 10);
+      ctx.clip();
+      ctx.drawImage(img, dx, dy, dw, dh);
+
+      // Borde sutil para cada foto
+      ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, celda, celda);
+      ctx.restore();
+    });
+
+    const blob = await canvasToJpegBlob(canvas);
+    if (!blob) throw new Error('canvas_export_failed');
+
+    const safeCliente = (infoCliente.cliente || 'cliente').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    return new File([blob], `cobro_${safeCliente}.jpg`, { type: 'image/jpeg' });
+  } finally {
+    // Liberar memoria de ImageBitmaps
+    decodedItems.forEach((item) => {
+      if (typeof item.close === 'function') {
+        try { item.close(); } catch {}
+      }
+    });
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+// Exporta un canvas a JPEG de forma robusta. En caso de ausencia o fallo de toBlob,
+// convierte toDataURL mediante atob -> Uint8Array -> Blob sin hacer peticiones fetch (que fallarían por CSP).
+async function canvasToJpegBlob(canvas, quality = 0.8) {
   const viaToBlob = await new Promise((resolve) => {
     if (typeof canvas.toBlob !== 'function') {
       resolve(null);
       return;
     }
     try {
-      canvas.toBlob(resolve, 'image/jpeg', 0.8);
-    } catch {
+      canvas.toBlob(resolve, 'image/jpeg', quality);
+    } catch (err) {
+      console.warn('canvas.toBlob failed:', err);
       resolve(null);
     }
   });
   if (viaToBlob) return viaToBlob;
 
   try {
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-    const res = await fetch(dataUrl);
-    return await res.blob();
-  } catch {
+    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+    const parts = dataUrl.split(',');
+    if (parts.length !== 2) throw new Error('data_url_invalid');
+    const binary = atob(parts[1]);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'image/jpeg' });
+  } catch (err) {
+    console.error('canvasToJpegBlob fallback conversion error:', err);
     return null;
   }
 }
 
-async function shareClienteWhatsApp(clienteNombre) {
+// Estado del modal de compartir en 2 tiempos
+let currentShareState = {
+  clienteNombre: '',
+  group: null,
+  text: '',
+  file: null,
+  previewObjectUrl: null,
+};
+
+function cleanupShareModalState() {
+  if (currentShareState.previewObjectUrl) {
+    URL.revokeObjectURL(currentShareState.previewObjectUrl);
+    currentShareState.previewObjectUrl = null;
+  }
+  currentShareState = {
+    clienteNombre: '',
+    group: null,
+    text: '',
+    file: null,
+    previewObjectUrl: null,
+  };
+}
+
+// Abre el modal de compartir y prepara el collage en segundo plano.
+// El tap final en "Compartir WhatsApp" será el que invoque navigator.share de forma inmediata
+// para no perder la activación de usuario en Safari / WebViews.
+async function openShareClienteModal(clienteNombre) {
   if (!clienteNombre) return;
   const group = groupByCliente(movimientosData).find(
     (g) => normalizeClienteKey(g.cliente) === normalizeClienteKey(clienteNombre)
   );
   if (!group) return;
 
+  cleanupShareModalState();
+
+  const modal = document.getElementById('modal-compartir-cobro');
+  const infoEl = document.getElementById('modal-compartir-info');
+  const progresoEl = document.getElementById('modal-compartir-progreso');
+  const progresoTexto = document.getElementById('modal-compartir-progreso-texto');
+  const previewWrap = document.getElementById('modal-compartir-preview-wrap');
+  const previewImg = document.getElementById('modal-compartir-preview-img');
+  const errorEl = document.getElementById('modal-compartir-error');
+  const btnDescargar = document.getElementById('modal-compartir-btn-descargar');
+  const btnShare = document.getElementById('modal-compartir-btn-share');
+
+  if (!modal) {
+    // Fallback si no está el modal en DOM
+    await shareClienteWhatsAppDirect(group);
+    return;
+  }
+
   const text = buildClienteWhatsAppText(group);
+  currentShareState.clienteNombre = clienteNombre;
+  currentShareState.group = group;
+  currentShareState.text = text;
+
+  const saldoColor = group.debe > 0 ? '#DC2626' : group.debe < 0 ? '#00A859' : '#00B2E3';
+  const saldoLabel = group.debe > 0 ? 'Debe' : group.debe < 0 ? 'Saldo a favor' : 'Al corriente';
+  infoEl.innerHTML = `
+    <div class="flex justify-between items-center">
+      <span class="font-bold text-base text-on-surface">${escapeHtml(group.cliente)}</span>
+      <span class="font-bold px-2.5 py-0.5 rounded-full text-xs" style="background: ${saldoColor}18; color: ${saldoColor};">
+        ${saldoLabel}: ${formatMoney(Math.abs(group.debe))}
+      </span>
+    </div>
+    <p class="text-xs text-outline mt-1">Se preparará el resumen para compartir por WhatsApp.</p>
+  `;
+
+  progresoEl.classList.remove('hidden');
+  previewWrap.classList.add('hidden');
+  errorEl.classList.add('hidden');
+  btnDescargar.classList.add('hidden');
+  modal.classList.remove('hidden');
+
   const fotoUrls = getFotosPedidosCliente(clienteNombre);
 
-  // El link wa.me solo soporta texto. Para incluir las fotos usamos el share
-  // nativo del dispositivo (funciona en celular, donde se usa esta app como
-  // PWA). Intentamos juntarlas en una sola imagen de miniaturas para no llenar
-  // el chat; si el collage falla, mandamos las fotos individuales; y si el
-  // dispositivo no soporta compartir archivos, se comparte solo el texto.
-  if (fotoUrls.length && navigator.share && navigator.canShare) {
-    try {
-      const blobs = await descargarFotosBlobs(fotoUrls);
+  if (!fotoUrls.length) {
+    progresoEl.classList.add('hidden');
+    infoEl.innerHTML += `<p class="text-xs text-on-surface-variant mt-2 italic">Sin fotos de pedidos en el ciclo actual. Se compartirá resumen en texto.</p>`;
+    return;
+  }
 
-      if (blobs.length) {
-        let files = [];
-        const collage = await crearCollageDesdeBlobs(blobs).catch(() => null);
+  progresoTexto.textContent = `Descargando fotos (0/${fotoUrls.length})...`;
 
-        if (collage) {
-          files = [collage];
-        } else {
-          files = blobs.map(
-            (b, i) => new File([b], `foto-${i + 1}.jpg`, { type: b.type || 'image/jpeg' })
-          );
-        }
+  try {
+    const blobs = await descargarFotosBlobs(fotoUrls, (completados, total) => {
+      progresoTexto.textContent = `Descargando fotos (${completados}/${total})...`;
+    });
 
-        if (files.length && navigator.canShare({ files })) {
-          await navigator.share({ text, files });
-          return;
-        }
+    if (blobs.length) {
+      progresoTexto.textContent = 'Generando collage con cabecera de cuenta...';
+      const file = await crearCollageDesdeBlobs(blobs, {
+        cliente: group.cliente,
+        debe: group.debe
+      });
+
+      if (file) {
+        currentShareState.file = file;
+        currentShareState.previewObjectUrl = URL.createObjectURL(file);
+        previewImg.src = currentShareState.previewObjectUrl;
+        previewWrap.classList.remove('hidden');
+        btnDescargar.classList.remove('hidden');
       }
-    } catch (err) {
-      if (err?.name === 'AbortError') return;
-      console.warn('No se pudo compartir con fotos, se comparte solo el texto:', err);
+    }
+  } catch (err) {
+    console.error('collage_preparation_failed:', err);
+    errorEl.textContent = 'No se pudo generar el collage de imágenes. Se podrá compartir el mensaje de texto.';
+    errorEl.classList.remove('hidden');
+  } finally {
+    progresoEl.classList.add('hidden');
+  }
+}
+
+// Acción inmediata al pulsar "Compartir WhatsApp" en el modal
+async function executeShareFromModal() {
+  const { group, text, file } = currentShareState;
+  if (!group) return;
+
+  // Copiar siempre el texto al portapapeles como respaldo secundario útil
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Mensaje copiado al portapapeles');
+    } catch {}
+  }
+
+  const modal = document.getElementById('modal-compartir-cobro');
+
+  if (file && navigator.share && navigator.canShare) {
+    const sharePayload = { files: [file] };
+    if (navigator.canShare(sharePayload)) {
+      try {
+        await navigator.share({
+          title: `Betterorden - ${group.cliente}`,
+          text: text,
+          files: [file]
+        });
+        if (modal) modal.classList.add('hidden');
+        cleanupShareModalState();
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        console.warn('navigator.share with collage failed:', err);
+      }
     }
   }
 
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: `Betterorden - ${group.cliente}`,
+        text: text
+      });
+      if (modal) modal.classList.add('hidden');
+      cleanupShareModalState();
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+
+  // Si no hay Web Share, abrir WhatsApp Web / App
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  if (modal) modal.classList.add('hidden');
+  cleanupShareModalState();
+}
+
+// Fallback de compatibilidad
+async function shareClienteWhatsApp(clienteNombre) {
+  openShareClienteModal(clienteNombre);
 }
 
 function renderClientes() {
@@ -2346,19 +2640,19 @@ function renderHistorialSemanas() {
 
       return `
         <div class="mb-2">
-          <button type="button" class="semana-toggle w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-colors" style="background: #F3F4F6;" data-week="${weekKey}">
-            <div>
+          <div class="semana-toggle-bar w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors cursor-pointer" style="background: #F3F4F6;" data-week="${weekKey}">
+            <div class="semana-title-area flex-1">
               <p class="text-[13px] font-bold text-on-surface">Semana del ${label}</p>
               <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
             </div>
             <div class="flex items-center gap-2">
-              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full" style="background: #00A859;" data-share-week="${weekKey}">
+              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full z-10 active:scale-95 transition-transform" style="background: #00A859;" data-share-week="${weekKey}">
                 <span class="material-symbols-outlined text-[14px]">share</span>
                 Compartir
               </button>
               <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
             </div>
-          </button>
+          </div>
           <div class="semana-pedidos hidden px-4 pb-3" data-week-content="${weekKey}">
             ${clientsHtml}
           </div>
@@ -2367,11 +2661,12 @@ function renderHistorialSemanas() {
     })
     .join('');
 
-  container.querySelectorAll('.semana-toggle').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const week = btn.dataset.week;
+  container.querySelectorAll('.semana-toggle-bar').forEach((bar) => {
+    bar.addEventListener('click', (e) => {
+      if (e.target.closest('.share-week-btn')) return;
+      const week = bar.dataset.week;
       const content = container.querySelector(`[data-week-content="${week}"]`);
-      const chevron = btn.querySelector('.semana-chevron');
+      const chevron = bar.querySelector('.semana-chevron');
       if (content) {
         content.classList.toggle('hidden');
         if (chevron) chevron.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
@@ -2470,6 +2765,37 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('historial-semanas')?.addEventListener('click', (event) => {
     const btn = event.target.closest('.share-week-btn');
     if (btn) shareResumenSemana(btn.dataset.shareWeek);
+  });
+
+  // Modal Compartir Cobro Listeners
+  const modalShare = document.getElementById('modal-compartir-cobro');
+  const closeShareModal = () => {
+    if (modalShare) modalShare.classList.add('hidden');
+    cleanupShareModalState();
+  };
+  document.getElementById('modal-compartir-cerrar')?.addEventListener('click', closeShareModal);
+  document.getElementById('modal-compartir-cancelar')?.addEventListener('click', closeShareModal);
+  document.getElementById('modal-compartir-btn-share')?.addEventListener('click', executeShareFromModal);
+  document.getElementById('modal-compartir-btn-copiar')?.addEventListener('click', async () => {
+    if (currentShareState.text && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(currentShareState.text);
+        showToast('Mensaje copiado al portapapeles');
+      } catch {
+        showToast('No se pudo copiar');
+      }
+    }
+  });
+  document.getElementById('modal-compartir-btn-descargar')?.addEventListener('click', () => {
+    if (currentShareState.file && currentShareState.previewObjectUrl) {
+      const a = document.createElement('a');
+      a.href = currentShareState.previewObjectUrl;
+      a.download = currentShareState.file.name || 'cobro.jpg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('Descargando imagen...');
+    }
   });
 
   updatePedidoFechaInfo();
