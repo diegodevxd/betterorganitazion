@@ -796,14 +796,19 @@
             <span class="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
-        <p class="text-xs text-outline mb-3">Establece tu meta semanal de pagos a cobrar (viernes a jueves):</p>
-        <div class="relative mb-4">
+        <p class="text-xs text-outline mb-2">Meta semanal de cobro (viernes a jueves):</p>
+        <div class="relative mb-3">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
-          <input type="number" step="100" min="0" id="input-meta-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-3 text-[16px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
+          <input type="number" step="100" min="1" id="input-meta-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[15px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
+        </div>
+        <p class="text-xs text-outline mb-2">Referencia de deuda alta para ranking ($):</p>
+        <div class="relative mb-4">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">priority_high</span>
+          <input type="number" step="100" min="1" id="input-deuda-ref-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[15px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
         </div>
         <div class="flex gap-2">
           <button type="button" class="flex-1 h-11 rounded-full border border-outline-variant bg-white text-on-surface-variant font-semibold text-xs" id="modal-meta-cancelar">Cancelar</button>
-          <button type="button" class="flex-1 h-11 btn-gradient text-white rounded-full font-semibold text-xs shadow-md" id="modal-meta-guardar">Guardar meta</button>
+          <button type="button" class="flex-1 h-11 btn-gradient text-white rounded-full font-semibold text-xs shadow-md" id="modal-meta-guardar">Guardar</button>
         </div>
       </div>
     </div>

@@ -170,6 +170,8 @@ function getMovimientoFecha(mov) {
 // o pedido fue cargado retroactivamente.
 function getMovimientoDateTime(mov) {
   if (!mov) return 0;
+  if (typeof mov._ts === 'number') return mov._ts;
+
   const fechaStr = normalizeDate(mov.fecha || mov.created_at);
   let horaStr = mov.hora || '';
   if (!horaStr && mov.created_at) {
@@ -182,10 +184,15 @@ function getMovimientoDateTime(mov) {
 
   const combined = new Date(`${fechaStr}T${horaStr}`);
   const ts = combined.getTime();
-  if (!Number.isNaN(ts)) return ts;
+  if (!Number.isNaN(ts)) {
+    mov._ts = ts;
+    return ts;
+  }
 
   const fallback = new Date(mov.created_at || mov.fecha).getTime();
-  return Number.isNaN(fallback) ? 0 : fallback;
+  const res = Number.isNaN(fallback) ? 0 : fallback;
+  mov._ts = res;
+  return res;
 }
 
 function setButtonLoading(button, isLoading, loadingText = 'Cargando...') {
@@ -669,6 +676,7 @@ function updateCharts() {
   const maxDpr = Math.min(window.devicePixelRatio || 1, 2);
 
   if (chartDonaInstance) {
+    chartDonaInstance._donaMontos = donaMontos;
     chartDonaInstance.data.datasets[0].data = donaData;
     chartDonaInstance.update('none');
   } else {
@@ -700,7 +708,8 @@ function updateCharts() {
               label: (ctx) => {
                 const count = ctx.parsed || 0;
                 const idx = ctx.dataIndex;
-                const monto = donaMontos[idx] || 0;
+                const montos = ctx.chart?._donaMontos || [];
+                const monto = montos[idx] || 0;
                 return ` ${ctx.label}: ${count} cliente${count !== 1 ? 's' : ''} (${formatMoney(monto)})`;
               }
             }
@@ -709,6 +718,7 @@ function updateCharts() {
         cutout: '68%'
       }
     });
+    chartDonaInstance._donaMontos = donaMontos;
   }
 }
 
@@ -746,19 +756,85 @@ function renderDashboard() {
 // Gamificación y Métricas de Cobranza (Fase 4)
 // ============================================
 const STORAGE_KEY_META_SEMANAL = 'bm_meta_semanal_v1';
-const DEUDA_ALTA_REF = 5000; // Referencia fija para anclar el ranking (Claude Corrección 3)
+const STORAGE_KEY_DEUDA_REF = 'bm_deuda_ref_v1';
+
+// Devuelve la mediana de cobranza (pagos) de las últimas 4 semanas cerradas
+function getSuggestedMetaSemanal() {
+  const { inicio: currInicio } = getWeekRange();
+  const cobros4Semanas = [];
+
+  for (let i = 1; i <= 4; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    let totalPagos = 0;
+    movimientosData.forEach((m) => {
+      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+        totalPagos += Number(m.monto) || 0;
+      }
+    });
+    cobros4Semanas.push(totalPagos);
+  }
+
+  cobros4Semanas.sort((a, b) => a - b);
+  const mid = Math.floor(cobros4Semanas.length / 2);
+  const mediana = cobros4Semanas.length % 2 === 0
+    ? (cobros4Semanas[mid - 1] + cobros4Semanas[mid]) / 2
+    : cobros4Semanas[mid];
+
+  return Math.max(1000, Math.round(mediana / 100) * 100);
+}
 
 function getStoredMetaSemanal() {
-  const val = parseFloat(localStorage.getItem(STORAGE_KEY_META_SEMANAL));
+  const raw = localStorage.getItem(STORAGE_KEY_META_SEMANAL);
+  const val = parseFloat(raw);
   if (!Number.isNaN(val) && val > 0) return val;
-  // Sugerencia inicial basada en el promedio de cobro semanal
-  return 5000;
+  return getSuggestedMetaSemanal();
 }
 
 function setStoredMetaSemanal(monto) {
   if (monto > 0) {
     localStorage.setItem(STORAGE_KEY_META_SEMANAL, String(monto));
   }
+}
+
+// Devuelve el percentil 90 de saldos deudores como sugerencia de umbral de deuda alta
+function getSuggestedDeudaAltaRef() {
+  const allGroups = groupByCliente(movimientosData);
+  const saldosDeudores = allGroups.filter((g) => g.debe > 0.005).map((g) => g.debe).sort((a, b) => a - b);
+  if (saldosDeudores.length === 0) return 5000;
+
+  const idx = Math.min(saldosDeudores.length - 1, Math.floor(saldosDeudores.length * 0.9));
+  const p90 = saldosDeudores[idx];
+  return Math.max(1000, Math.round(p90 / 100) * 100);
+}
+
+function getStoredDeudaAltaRef() {
+  const raw = localStorage.getItem(STORAGE_KEY_DEUDA_REF);
+  const val = parseFloat(raw);
+  if (!Number.isNaN(val) && val > 0) return val;
+  return getSuggestedDeudaAltaRef();
+}
+
+function setStoredDeudaAltaRef(monto) {
+  if (monto > 0) {
+    localStorage.setItem(STORAGE_KEY_DEUDA_REF, String(monto));
+  }
+}
+
+// Función unificada para determinar si una semana cumplió la meta de cobranza (Defecto 3)
+function semanaCumplioMeta(wRange, meta) {
+  let cobrado = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+      cobrado += Number(m.monto) || 0;
+    }
+  });
+  return cobrado >= meta;
 }
 
 // Calcula el score de cobranza (0-100) en ventana móvil de 28 días
@@ -787,37 +863,46 @@ function calculateScoreCobranza() {
     }
   });
 
-  // Saldo abierto antes de la ventana
-  let saldoPrevio = 0;
+  // Saldo abierto antes de la ventana calculado POR CLIENTE sin netear saldos entre clientes distintos (Defecto 4)
+  const saldoPrevioPorCliente = new Map();
   movimientosData.forEach((m) => {
     const d = parseLocalDate(getMovimientoFecha(m));
     if (d && d < ventanaInicio) {
+      const cKey = normalizeClienteKey(m.cliente);
+      if (!cKey) return;
+      const prev = saldoPrevioPorCliente.get(cKey) || 0;
       const monto = Number(m.monto) || 0;
-      if (m.tipo === 'pedido' && m.estado !== 'pagado') saldoPrevio += monto;
-      else if (m.tipo === 'pago') saldoPrevio -= monto;
+      if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        saldoPrevioPorCliente.set(cKey, prev + monto);
+      } else if (m.tipo === 'pago') {
+        saldoPrevioPorCliente.set(cKey, prev - monto);
+      }
     }
   });
-  if (saldoPrevio < 0) saldoPrevio = 0;
 
-  const deudaExigible28 = saldoPrevio + cobrables28;
+  let totalCarteraAbiertaPrevia = 0;
+  saldoPrevioPorCliente.forEach((saldo) => {
+    if (saldo > 0.005) {
+      totalCarteraAbiertaPrevia += saldo;
+    }
+  });
+
+  const deudaExigible28 = totalCarteraAbiertaPrevia + cobrables28;
   let T_ratio = 1;
   if (deudaExigible28 > 0) {
     T_ratio = Math.min(1, Math.max(0, pagos28 / deudaExigible28));
   } else {
-    // Si no hay deuda exigible, verificar si hay mora global
     const hayDeudaGlobal = allGroups.some((g) => g.debe > 0.005);
     T_ratio = hayDeudaGlobal ? 0.5 : 1;
   }
   const ptsT = Math.round(40 * T_ratio);
 
   // 2. Velocidad de cierre de ciclos V (25 pts)
-  // Evalúa los ciclos cerrados por clientes en la ventana
   let sumaVelocidadPonderada = 0;
   let totalMontoCiclosCerrados = 0;
 
   allGroups.forEach((group) => {
-    // Analizar el historial cronológico para detectar ciclos cerrados dentro de la ventana
-    const sortedMovs = group.movimientos.slice().reverse(); // De más antiguo a más reciente
+    const sortedMovs = group.movimientos.slice().reverse();
     let balance = 0;
     let cycleStartTs = null;
     let cycleMonto = 0;
@@ -837,7 +922,6 @@ function calculateScoreCobranza() {
       } else if (m.tipo === 'pago') {
         balance -= monto;
         if (balance <= 0.005 && cycleStartTs && mDate && mDate >= ventanaInicio) {
-          // Ciclo cerrado en la ventana
           const diasParaCerrar = Math.max(0, (mTs - cycleStartTs) / (1000 * 60 * 60 * 24));
           const scoreCiclo = Math.max(0, 1 - diasParaCerrar / 28);
           sumaVelocidadPonderada += scoreCiclo * cycleMonto;
@@ -851,7 +935,7 @@ function calculateScoreCobranza() {
 
   const V_ratio = totalMontoCiclosCerrados > 0
     ? (sumaVelocidadPonderada / totalMontoCiclosCerrados)
-    : 0.5; // Valor neutral 0.5 si no hubo ciclos cerrables (no inventar 100%)
+    : 0.5;
   const ptsV = Math.round(25 * V_ratio);
 
   // 3. Antigüedad sana de cartera abierta A (20 pts)
@@ -883,13 +967,12 @@ function calculateScoreCobranza() {
   }
   const ptsA = Math.round(20 * A_ratio);
 
-  // 4. Racha y cumplimiento de metas R (15 pts)
+  // 4. Racha y cumplimiento de metas R (15 pts) - Evalúa las 4 semanas anteriores cerradas (Defecto 3)
   const meta = getStoredMetaSemanal();
   const { inicio: currInicio } = getWeekRange();
 
-  // Evaluar las últimas 4 semanas
   let semanasCumplidas = 0;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 1; i <= 4; i++) {
     const wStart = new Date(currInicio);
     wStart.setDate(currInicio.getDate() - i * 7);
     const wEnd = new Date(wStart);
@@ -897,14 +980,7 @@ function calculateScoreCobranza() {
     wEnd.setHours(23, 59, 59, 999);
     const wRange = { inicio: wStart, fin: wEnd };
 
-    let cobradoEnSemana = 0;
-    movimientosData.forEach((m) => {
-      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
-        cobradoEnSemana += Number(m.monto) || 0;
-      }
-    });
-
-    if (cobradoEnSemana >= meta || (i === 0 && cobradoEnSemana > 0 && cobradoEnSemana >= meta * 0.5)) {
+    if (semanaCumplioMeta(wRange, meta)) {
       semanasCumplidas++;
     }
   }
@@ -933,7 +1009,7 @@ function calculateScoreCobranza() {
     nivelBg = '#FEF3C7';
   }
 
-  // Siguiente línea de acción derivada del componente más débil (Claude Corrección 4)
+  // Siguiente línea de acción derivada del componente más débil en texto plano sin entidades HTML (Defecto 7 / Menor)
   let lineaAccion = '';
   const metaActual = getStoredMetaSemanal();
   const currentWeek = getWeekRange();
@@ -948,7 +1024,7 @@ function calculateScoreCobranza() {
   if (faltaParaMeta > 0 && (ptsT < 28 || ptsR < 10)) {
     lineaAccion = `Cobra ${formatMoney(faltaParaMeta)} esta semana para alcanzar tu meta y subir puntaje.`;
   } else if (peorMorosoAntiguo && peorMorosoAntiguo.dias >= 14 && ptsA < 16) {
-    lineaAccion = `La deuda de ${escapeHtml(peorMorosoAntiguo.cliente)} lleva ${peorMorosoAntiguo.dias} días (${formatMoney(peorMorosoAntiguo.debe)}). Es la más antigua.`;
+    lineaAccion = `La deuda de ${peorMorosoAntiguo.cliente} lleva ${peorMorosoAntiguo.dias} días (${formatMoney(peorMorosoAntiguo.debe)}). Es la más antigua.`;
   } else if (ptsV < 15) {
     lineaAccion = `Cierra ciclos pendientes cobrando los saldos de clientes con pedidos abiertos.`;
   } else if (faltaParaMeta === 0) {
@@ -972,7 +1048,7 @@ function calculateScoreCobranza() {
   };
 }
 
-// Calcula la racha activa de semanas consecutivas cumpliendo la meta
+// Calcula la racha activa de semanas consecutivas cerradas cumpliendo la meta (Defecto 3)
 function calculateRachaSemanas() {
   const meta = getStoredMetaSemanal();
   const { inicio: currInicio } = getWeekRange();
@@ -980,11 +1056,11 @@ function calculateRachaSemanas() {
   let recordHistorico = 0;
   let tempRacha = 0;
 
-  // Analizar hasta 26 semanas hacia atrás
+  // Analizar hasta 26 semanas cerradas hacia atrás (i=1 a 26)
   const maxSemanas = 26;
   const resultadosPorSemana = [];
 
-  for (let i = 0; i < maxSemanas; i++) {
+  for (let i = 1; i <= maxSemanas; i++) {
     const wStart = new Date(currInicio);
     wStart.setDate(currInicio.getDate() - i * 7);
     const wEnd = new Date(wStart);
@@ -992,29 +1068,20 @@ function calculateRachaSemanas() {
     wEnd.setHours(23, 59, 59, 999);
     const wRange = { inicio: wStart, fin: wEnd };
 
-    let cobrado = 0;
-    movimientosData.forEach((m) => {
-      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
-        cobrado += Number(m.monto) || 0;
-      }
-    });
-
-    const cumplio = cobrado >= meta || (i === 0 && cobrado > 0);
+    const cumplio = semanaCumplioMeta(wRange, meta);
     resultadosPorSemana.push(cumplio);
   }
 
-  // Racha activa desde la semana actual/anterior hacia atrás
+  // Racha activa consecutiva desde la última semana cerrada
   for (let i = 0; i < resultadosPorSemana.length; i++) {
     if (resultadosPorSemana[i]) {
       rachaActual++;
     } else {
-      // Si la semana actual (i=0) aún no llega a la meta, no romper la racha si la semana anterior cumplió
-      if (i === 0 && resultadosPorSemana[1]) continue;
       break;
     }
   }
 
-  // Récord histórico
+  // Récord histórico en la serie de semanas cerradas
   resultadosPorSemana.slice().reverse().forEach((cumplio) => {
     if (cumplio) {
       tempRacha++;
@@ -1029,11 +1096,12 @@ function calculateRachaSemanas() {
   return { rachaActual, recordHistorico };
 }
 
-// Calcula el ranking de clientes morosos anclado a referencia fija (Claude Corrección 3)
+// Calcula el ranking de clientes morosos anclado a referencia configurable (Defecto 7 / Claude Corrección 3)
 function calculateRankingMorosos() {
   const now = new Date();
   const allGroups = groupByCliente(movimientosData);
   const deudores = allGroups.filter((g) => g.debe > 0.005);
+  const deudaAltaRef = getStoredDeudaAltaRef();
 
   const ranking = deudores.map((g) => {
     const cicloActual = getMovimientosCicloActual(g.cliente);
@@ -1046,8 +1114,8 @@ function calculateRankingMorosos() {
     const diasDeuda = fechaPrimerPedido ? Math.max(0, Math.floor((now - fechaPrimerPedido) / (1000 * 60 * 60 * 24))) : 0;
     const diasSinPago = fechaUltimoPago ? Math.max(0, Math.floor((now - fechaUltimoPago) / (1000 * 60 * 60 * 24))) : Math.max(diasDeuda, 28);
 
-    // Fórmula anclada con DEUDA_ALTA_REF
-    const componenteSaldo = 50 * Math.min(1, Math.max(0, g.debe / DEUDA_ALTA_REF));
+    // Fórmula anclada con deudaAltaRef configurable
+    const componenteSaldo = 50 * Math.min(1, Math.max(0, g.debe / deudaAltaRef));
     const componenteDiasDeuda = 35 * Math.min(1, diasDeuda / 42);
     const componenteDiasSinPago = 15 * Math.min(1, diasSinPago / 28);
 
@@ -1087,7 +1155,7 @@ function renderGamificacion() {
   if (scoreVelEl) scoreVelEl.textContent = `${scoreData.ptsV}/25`;
   if (scoreAntEl) scoreAntEl.textContent = `${scoreData.ptsA}/20`;
   if (scoreRachaEl) scoreRachaEl.textContent = `${scoreData.ptsR}/15`;
-  if (scoreAccionTextoEl) scoreAccionTextoEl.innerHTML = scoreData.lineaAccion;
+  if (scoreAccionTextoEl) scoreAccionTextoEl.textContent = scoreData.lineaAccion;
 
   // 2. Render Meta Semanal
   const metaMonto = getStoredMetaSemanal();
@@ -1127,7 +1195,7 @@ function renderGamificacion() {
       : '¡Objetivo semanal cumplido!';
   }
 
-  // 3. Render Racha
+  // 3. Render Racha (Semanas cerradas + estado de la semana en progreso)
   const { rachaActual, recordHistorico } = calculateRachaSemanas();
   const rachaNumeroEl = document.getElementById('racha-numero');
   const rachaTituloEl = document.getElementById('racha-titulo');
@@ -1136,12 +1204,13 @@ function renderGamificacion() {
 
   if (rachaNumeroEl) rachaNumeroEl.textContent = rachaActual;
   if (rachaTituloEl) {
-    rachaTituloEl.textContent = `${rachaActual} semana${rachaActual !== 1 ? 's' : ''} activa${rachaActual !== 1 ? 's' : ''}`;
+    rachaTituloEl.textContent = `${rachaActual} semana${rachaActual !== 1 ? 's' : ''} cerrada${rachaActual !== 1 ? 's' : ''}`;
   }
   if (rachaDetalleEl) {
-    rachaDetalleEl.textContent = rachaActual > 0
-      ? '¡Cobranza constante y al día!'
-      : 'Cobra tu meta esta semana para iniciar racha';
+    const cumplioActual = cobradoSemanaActual >= metaMonto;
+    rachaDetalleEl.textContent = cumplioActual
+      ? '¡Semana en curso cumplida!'
+      : `Semana en curso: ${porcentajeMeta}% completado`;
   }
   if (rachaRecordEl) {
     rachaRecordEl.textContent = `Récord: ${recordHistorico} sem`;
@@ -1264,12 +1333,14 @@ let cachedUniqueClientes = null;
 let cachedCanonicalMap = new Map();
 let cachedGlobalGroupMap = null;
 let cachedGlobalGroupsArray = null;
+let cachedCiclosMap = new Map();
 
 function invalidateClientesCache() {
   cachedUniqueClientes = null;
   cachedCanonicalMap.clear();
   cachedGlobalGroupMap = null;
   cachedGlobalGroupsArray = null;
+  cachedCiclosMap.clear();
 }
 
 function normalizeClienteNombre(name) {
@@ -2176,6 +2247,9 @@ function renderMovimientoItem(mov) {
 // Ordenado por fecha efectiva ascendente (Bug #18).
 function getMovimientosCicloActual(clienteNombre) {
   const key = normalizeClienteKey(clienteNombre);
+  if (!key) return [];
+  if (cachedCiclosMap.has(key)) return cachedCiclosMap.get(key);
+
   const movs = movimientosData
     .filter((m) => normalizeClienteKey(m.cliente) === key)
     .slice()
@@ -2197,7 +2271,9 @@ function getMovimientosCicloActual(clienteNombre) {
     if (balance <= 0.005) inicio = i + 1;
   });
 
-  return movs.slice(inicio);
+  const ciclo = movs.slice(inicio);
+  cachedCiclosMap.set(key, ciclo);
+  return ciclo;
 }
 
 function buildClienteWhatsAppText(group) {
@@ -3590,6 +3666,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDownloadDelegation('historial-altas');
   setupEditDelegation('historial-clientes', 'movimiento');
   setupEditDelegation('historial-altas', 'asociado');
+  setupEditDelegation('ranking-morosos-lista');
 
   setupClienteAutocomplete();
   initModal();
@@ -3669,9 +3746,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Modal Meta Semanal Listeners
   const modalMeta = document.getElementById('modal-meta');
   const inputMeta = document.getElementById('input-meta-monto');
+  const inputDeudaRef = document.getElementById('input-deuda-ref-monto');
   const openMetaModal = () => {
     if (!modalMeta) return;
     if (inputMeta) inputMeta.value = getStoredMetaSemanal();
+    if (inputDeudaRef) inputDeudaRef.value = getStoredDeudaAltaRef();
     modalMeta.classList.remove('hidden');
     inputMeta?.focus();
   };
@@ -3683,15 +3762,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('modal-meta-cerrar')?.addEventListener('click', closeMetaModal);
   document.getElementById('modal-meta-cancelar')?.addEventListener('click', closeMetaModal);
   document.getElementById('modal-meta-guardar')?.addEventListener('click', () => {
-    const val = parseFloat(inputMeta?.value);
-    if (!Number.isNaN(val) && val > 0) {
-      setStoredMetaSemanal(val);
-      renderGamificacion();
-      closeMetaModal();
-      showSuccessToast('Meta actualizada');
-    } else {
+    const valMeta = parseFloat(inputMeta?.value);
+    const valDeuda = parseFloat(inputDeudaRef?.value);
+    if (Number.isNaN(valMeta) || valMeta <= 0) {
       alert('Ingresa un monto de meta válido mayor a 0');
+      return;
     }
+    setStoredMetaSemanal(valMeta);
+    if (!Number.isNaN(valDeuda) && valDeuda > 0) {
+      setStoredDeudaAltaRef(valDeuda);
+    }
+    renderGamificacion();
+    closeMetaModal();
+    showSuccessToast('Configuración actualizada');
   });
 
   updatePedidoFechaInfo();
