@@ -1458,13 +1458,23 @@ async function descargarFotosBlobs(urls, onProgress) {
 }
 
 // Decodifica un Blob a Bitmap/Image usando primero createImageBitmap (bypass de CSP)
+// con redimensionado temprano (resizeWidth) para evitar picos de memoria masivos,
 // y fallback a FileReader + dataUrl. NUNCA usa img.src = blob: dentro del generador.
-async function decodeImageBlob(blob) {
+async function decodeImageBlob(blob, targetSize = 400) {
   if (typeof createImageBitmap === 'function') {
     try {
-      return await createImageBitmap(blob, { imageOrientation: 'from-image' });
-    } catch (err) {
-      console.warn('createImageBitmap fallback to FileReader:', err);
+      const resizeOptions = {
+        imageOrientation: 'from-image',
+        resizeWidth: targetSize,
+        resizeQuality: 'high'
+      };
+      return await createImageBitmap(blob, resizeOptions);
+    } catch {
+      try {
+        return await createImageBitmap(blob, { imageOrientation: 'from-image' });
+      } catch (err) {
+        console.warn('createImageBitmap fallback to FileReader:', err);
+      }
     }
   }
 
@@ -1482,17 +1492,40 @@ async function decodeImageBlob(blob) {
   });
 }
 
+// Utilidad segura para dibujar rectángulos redondeados con fallback en Safari < 16.4
+function drawRoundRectSafe(ctx, x, y, width, height, radius) {
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(x, y, width, height, radius);
+  } else {
+    // Fallback estándar en canvas antiguo
+    ctx.rect(x, y, width, height);
+  }
+}
+
 // Junta varias fotos en un solo collage con cabecera legible de deuda dentro del JPEG.
 // WhatsApp descarta el texto cuando lleva archivos, por lo que el estado de cuenta debe
 // dibujarse directamente en los pixeles.
-async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
+async function crearCollageDesdeBlobs(blobs, infoCliente = {}, targetWidth = 1080) {
   if (!blobs || !blobs.length) return null;
 
-  // Decodificar todos los blobs
+  const gap = 12;
+  const padding = 16;
+  const count = blobs.length;
+
+  let cols = 1;
+  if (count >= 5) cols = 3;
+  else if (count >= 2) cols = 2;
+
+  const rows = Math.ceil(count / cols);
+  const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
+  const celda = Math.floor(availableWidth / cols);
+  const headerHeight = Math.round(160 * (targetWidth / 1080));
+
+  // Decodificar todos los blobs ya redimensionados a `celda` para no saturar memoria
   const decodedItems = [];
   for (const blob of blobs) {
     try {
-      const drawable = await decodeImageBlob(blob);
+      const drawable = await decodeImageBlob(blob, celda);
       if (drawable) decodedItems.push(drawable);
     } catch (err) {
       console.warn('decode_failed_item:', err);
@@ -1503,20 +1536,6 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
 
   const canvas = document.createElement('canvas');
   try {
-    const targetWidth = 1080;
-    const gap = 12;
-    const padding = 16;
-    const count = decodedItems.length;
-
-    let cols = 1;
-    if (count >= 5) cols = 3;
-    else if (count >= 2) cols = 2;
-
-    const rows = Math.ceil(count / cols);
-    const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
-    const celda = Math.floor(availableWidth / cols);
-    const headerHeight = 160;
-
     canvas.width = targetWidth;
     canvas.height = headerHeight + padding + rows * celda + (rows - 1) * gap + padding;
 
@@ -1528,7 +1547,6 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // --- Cabecera de cobranza dentro del JPEG ---
-    // Fondo de cabecera degradado profesional Betterorden
     const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
     grad.addColorStop(0, '#002855');
     grad.addColorStop(1, '#00B2E3');
@@ -1536,20 +1554,26 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
     ctx.fillRect(0, 0, canvas.width, headerHeight);
 
     // Marca
+    const scaleFactor = targetWidth / 1080;
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 36px sans-serif';
-    ctx.fillText('Betterorden', padding + 8, 48);
+    ctx.font = `bold ${Math.round(36 * scaleFactor)}px sans-serif`;
+    ctx.fillText('Betterorden', padding + 8, Math.round(48 * scaleFactor));
 
-    // Subtítulo / Marca secundaria
-    ctx.font = '18px sans-serif';
+    // Subtítulo
+    ctx.font = `${Math.round(18 * scaleFactor)}px sans-serif`;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.fillText('Resumen de cuenta y pedidos', padding + 8, 76);
+    ctx.fillText('Resumen de cuenta y pedidos', padding + 8, Math.round(76 * scaleFactor));
 
     // Nombre del cliente
     const clienteNombre = infoCliente.cliente || 'Cliente';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = `bold ${Math.round(28 * scaleFactor)}px sans-serif`;
     ctx.fillStyle = '#FFFFFF';
-    const maxNombreWidth = canvas.width - (padding * 2) - 340;
+    const boxWidth = Math.round(300 * scaleFactor);
+    const boxHeight = Math.round(110 * scaleFactor);
+    const boxX = canvas.width - padding - boxWidth;
+    const boxY = Math.round(25 * scaleFactor);
+
+    const maxNombreWidth = boxX - padding - 20;
     let nombreRender = clienteNombre;
     if (ctx.measureText(nombreRender).width > maxNombreWidth) {
       while (nombreRender.length > 4 && ctx.measureText(nombreRender + '...').width > maxNombreWidth) {
@@ -1557,7 +1581,7 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
       }
       nombreRender += '...';
     }
-    ctx.fillText(nombreRender, padding + 8, 126);
+    ctx.fillText(nombreRender, padding + 8, Math.round(126 * scaleFactor));
 
     // Fecha / Hora de corte
     const fechaCorte = new Date().toLocaleDateString('es-MX', {
@@ -1567,38 +1591,33 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
       hour: '2-digit',
       minute: '2-digit'
     });
-    ctx.font = '15px sans-serif';
+    ctx.font = `${Math.round(15 * scaleFactor)}px sans-serif`;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.fillText(`Corte: ${fechaCorte}`, padding + 8, 148);
+    ctx.fillText(`Corte: ${fechaCorte}`, padding + 8, Math.round(148 * scaleFactor));
 
     // Caja de Estado / Saldo a la derecha
     const saldo = typeof infoCliente.debe === 'number' ? infoCliente.debe : 0;
     const esDeuda = saldo > 0.005;
     const esFavor = saldo < -0.005;
 
-    const boxWidth = 300;
-    const boxHeight = 110;
-    const boxX = canvas.width - padding - boxWidth;
-    const boxY = 25;
-
     ctx.fillStyle = esDeuda ? '#FEF2F2' : '#ECFDF5';
     ctx.strokeStyle = esDeuda ? '#DC2626' : '#00A859';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = Math.max(2, Math.round(3 * scaleFactor));
     ctx.beginPath();
-    ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 14);
+    drawRoundRectSafe(ctx, boxX, boxY, boxWidth, boxHeight, Math.round(14 * scaleFactor));
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = esDeuda ? '#991B1B' : '#065F46';
-    ctx.font = 'bold 16px sans-serif';
+    ctx.font = `bold ${Math.round(16 * scaleFactor)}px sans-serif`;
     ctx.textAlign = 'center';
     const labelTexto = esDeuda ? 'TOTAL A PAGAR' : esFavor ? 'SALDO A FAVOR' : 'CUENTA AL DÍA';
-    ctx.fillText(labelTexto, boxX + boxWidth / 2, boxY + 35);
+    ctx.fillText(labelTexto, boxX + boxWidth / 2, boxY + Math.round(35 * scaleFactor));
 
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = `bold ${Math.round(32 * scaleFactor)}px sans-serif`;
     ctx.fillStyle = esDeuda ? '#DC2626' : '#00A859';
     const montoTexto = formatMoney(Math.abs(saldo));
-    ctx.fillText(montoTexto, boxX + boxWidth / 2, boxY + 78);
+    ctx.fillText(montoTexto, boxX + boxWidth / 2, boxY + Math.round(78 * scaleFactor));
     ctx.textAlign = 'left';
 
     // --- Dibujar miniaturas de pedidos en cuadrícula ---
@@ -1619,7 +1638,7 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
 
       ctx.save();
       ctx.beginPath();
-      ctx.roundRect(x, y, celda, celda, 10);
+      drawRoundRectSafe(ctx, x, y, celda, celda, Math.round(10 * scaleFactor));
       ctx.clip();
       ctx.drawImage(img, dx, dy, dw, dh);
 
@@ -1630,7 +1649,13 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}) {
       ctx.restore();
     });
 
-    const blob = await canvasToJpegBlob(canvas);
+    let blob = await canvasToJpegBlob(canvas, 0.8);
+    // Reintento con dimensiones/calidad reducidas si exporta null (Paso 6 del plan)
+    if (!blob && targetWidth > 720) {
+      console.warn('Reintentando collage con resolución 720px y calidad 0.68...');
+      return await crearCollageDesdeBlobs(blobs, infoCliente, 720);
+    }
+
     if (!blob) throw new Error('canvas_export_failed');
 
     const safeCliente = (infoCliente.cliente || 'cliente').toLowerCase().replace(/[^a-z0-9]/g, '_');
@@ -1794,20 +1819,20 @@ async function openShareClienteModal(clienteNombre) {
   }
 }
 
-// Acción inmediata al pulsar "Compartir WhatsApp" en el modal
+// Acción inmediata al pulsar "Compartir WhatsApp" en el modal.
+// Se invoca navigator.share PRIMERO para no consumir la activación del usuario (gesture token).
 async function executeShareFromModal() {
   const { group, text, file } = currentShareState;
   if (!group) return;
 
-  // Copiar siempre el texto al portapapeles como respaldo secundario útil
-  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-    try {
-      await navigator.clipboard.writeText(text);
-      showToast('Mensaje copiado al portapapeles');
-    } catch {}
-  }
-
   const modal = document.getElementById('modal-compartir-cobro');
+
+  // Copiar al portapapeles en segundo plano sin bloquear (sin await antes de share)
+  const copyPromise = (navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
+    ? navigator.clipboard.writeText(text).then(() => {
+        showSuccessToast('Mensaje copiado al portapapeles');
+      }).catch(() => {})
+    : Promise.resolve();
 
   if (file && navigator.share && navigator.canShare) {
     const sharePayload = { files: [file] };
@@ -2640,7 +2665,7 @@ function renderHistorialSemanas() {
 
       return `
         <div class="mb-2">
-          <div class="semana-toggle-bar w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors cursor-pointer" style="background: #F3F4F6;" data-week="${weekKey}">
+          <div class="semana-toggle-bar w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-[#00B2E3]" style="background: #F3F4F6;" data-week="${weekKey}" role="button" tabindex="0" aria-expanded="false">
             <div class="semana-title-area flex-1">
               <p class="text-[13px] font-bold text-on-surface">Semana del ${label}</p>
               <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
@@ -2662,14 +2687,27 @@ function renderHistorialSemanas() {
     .join('');
 
   container.querySelectorAll('.semana-toggle-bar').forEach((bar) => {
-    bar.addEventListener('click', (e) => {
-      if (e.target.closest('.share-week-btn')) return;
+    const toggleSemana = () => {
       const week = bar.dataset.week;
       const content = container.querySelector(`[data-week-content="${week}"]`);
       const chevron = bar.querySelector('.semana-chevron');
       if (content) {
-        content.classList.toggle('hidden');
-        if (chevron) chevron.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
+        const isHidden = content.classList.toggle('hidden');
+        bar.setAttribute('aria-expanded', String(!isHidden));
+        if (chevron) chevron.style.transform = isHidden ? '' : 'rotate(180deg)';
+      }
+    };
+
+    bar.addEventListener('click', (e) => {
+      if (e.target.closest('.share-week-btn')) return;
+      toggleSemana();
+    });
+
+    bar.addEventListener('keydown', (e) => {
+      if (e.target.closest('.share-week-btn')) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleSemana();
       }
     });
   });
@@ -2780,9 +2818,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (currentShareState.text && navigator.clipboard) {
       try {
         await navigator.clipboard.writeText(currentShareState.text);
-        showToast('Mensaje copiado al portapapeles');
+        showSuccessToast('Mensaje copiado al portapapeles');
       } catch {
-        showToast('No se pudo copiar');
+        showSuccessToast('No se pudo copiar');
       }
     }
   });
@@ -2794,7 +2832,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      showToast('Descargando imagen...');
+      showSuccessToast('Descargando imagen...');
     }
   });
 
