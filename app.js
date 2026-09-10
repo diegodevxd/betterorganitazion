@@ -742,6 +742,469 @@ function renderDashboard() {
   `;
 }
 
+// ============================================
+// Gamificación y Métricas de Cobranza (Fase 4)
+// ============================================
+const STORAGE_KEY_META_SEMANAL = 'bm_meta_semanal_v1';
+const DEUDA_ALTA_REF = 5000; // Referencia fija para anclar el ranking (Claude Corrección 3)
+
+function getStoredMetaSemanal() {
+  const val = parseFloat(localStorage.getItem(STORAGE_KEY_META_SEMANAL));
+  if (!Number.isNaN(val) && val > 0) return val;
+  // Sugerencia inicial basada en el promedio de cobro semanal
+  return 5000;
+}
+
+function setStoredMetaSemanal(monto) {
+  if (monto > 0) {
+    localStorage.setItem(STORAGE_KEY_META_SEMANAL, String(monto));
+  }
+}
+
+// Calcula el score de cobranza (0-100) en ventana móvil de 28 días
+function calculateScoreCobranza() {
+  const now = new Date();
+  const ventanaInicio = new Date(now);
+  ventanaInicio.setDate(now.getDate() - 28);
+  ventanaInicio.setHours(0, 0, 0, 0);
+
+  const allGroups = groupByCliente(movimientosData);
+
+  // 1. Tasa de cobranza T (40 pts)
+  // Pagos aplicados en los últimos 28 días vs Deuda exigible en los últimos 28 días
+  let pagos28 = 0;
+  let cobrables28 = 0;
+
+  movimientosData.forEach((m) => {
+    const d = parseLocalDate(getMovimientoFecha(m));
+    if (d && d >= ventanaInicio && d <= now) {
+      const monto = Number(m.monto) || 0;
+      if (m.tipo === 'pago') {
+        pagos28 += monto;
+      } else if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        cobrables28 += monto;
+      }
+    }
+  });
+
+  // Saldo abierto antes de la ventana
+  let saldoPrevio = 0;
+  movimientosData.forEach((m) => {
+    const d = parseLocalDate(getMovimientoFecha(m));
+    if (d && d < ventanaInicio) {
+      const monto = Number(m.monto) || 0;
+      if (m.tipo === 'pedido' && m.estado !== 'pagado') saldoPrevio += monto;
+      else if (m.tipo === 'pago') saldoPrevio -= monto;
+    }
+  });
+  if (saldoPrevio < 0) saldoPrevio = 0;
+
+  const deudaExigible28 = saldoPrevio + cobrables28;
+  let T_ratio = 1;
+  if (deudaExigible28 > 0) {
+    T_ratio = Math.min(1, Math.max(0, pagos28 / deudaExigible28));
+  } else {
+    // Si no hay deuda exigible, verificar si hay mora global
+    const hayDeudaGlobal = allGroups.some((g) => g.debe > 0.005);
+    T_ratio = hayDeudaGlobal ? 0.5 : 1;
+  }
+  const ptsT = Math.round(40 * T_ratio);
+
+  // 2. Velocidad de cierre de ciclos V (25 pts)
+  // Evalúa los ciclos cerrados por clientes en la ventana
+  let sumaVelocidadPonderada = 0;
+  let totalMontoCiclosCerrados = 0;
+
+  allGroups.forEach((group) => {
+    // Analizar el historial cronológico para detectar ciclos cerrados dentro de la ventana
+    const sortedMovs = group.movimientos.slice().reverse(); // De más antiguo a más reciente
+    let balance = 0;
+    let cycleStartTs = null;
+    let cycleMonto = 0;
+
+    sortedMovs.forEach((m) => {
+      const mDate = parseLocalDate(getMovimientoFecha(m));
+      const mTs = mDate ? mDate.getTime() : 0;
+      const monto = Number(m.monto) || 0;
+
+      if (m.tipo === 'pedido' && m.estado !== 'pagado') {
+        if (balance <= 0.005) {
+          cycleStartTs = mTs;
+          cycleMonto = 0;
+        }
+        balance += monto;
+        cycleMonto += monto;
+      } else if (m.tipo === 'pago') {
+        balance -= monto;
+        if (balance <= 0.005 && cycleStartTs && mDate && mDate >= ventanaInicio) {
+          // Ciclo cerrado en la ventana
+          const diasParaCerrar = Math.max(0, (mTs - cycleStartTs) / (1000 * 60 * 60 * 24));
+          const scoreCiclo = Math.max(0, 1 - diasParaCerrar / 28);
+          sumaVelocidadPonderada += scoreCiclo * cycleMonto;
+          totalMontoCiclosCerrados += cycleMonto;
+          cycleStartTs = null;
+          cycleMonto = 0;
+        }
+      }
+    });
+  });
+
+  const V_ratio = totalMontoCiclosCerrados > 0
+    ? (sumaVelocidadPonderada / totalMontoCiclosCerrados)
+    : 0.5; // Valor neutral 0.5 si no hubo ciclos cerrables (no inventar 100%)
+  const ptsV = Math.round(25 * V_ratio);
+
+  // 3. Antigüedad sana de cartera abierta A (20 pts)
+  let sumaDiasPonderada = 0;
+  let totalDeudaAbierta = 0;
+  let peorMorosoAntiguo = null;
+  let maxDiasMora = 0;
+
+  allGroups.forEach((group) => {
+    if (group.debe > 0.005) {
+      const cicloActual = getMovimientosCicloActual(group.cliente);
+      const primerPedido = cicloActual.find((m) => m.tipo === 'pedido' && m.estado !== 'pagado');
+      const fechaPrimer = primerPedido ? parseLocalDate(getMovimientoFecha(primerPedido)) : null;
+      const dias = fechaPrimer ? Math.max(0, Math.floor((now - fechaPrimer) / (1000 * 60 * 60 * 24))) : 0;
+      sumaDiasPonderada += dias * group.debe;
+      totalDeudaAbierta += group.debe;
+
+      if (dias > maxDiasMora) {
+        maxDiasMora = dias;
+        peorMorosoAntiguo = { cliente: group.cliente, dias, debe: group.debe };
+      }
+    }
+  });
+
+  let A_ratio = 1;
+  if (totalDeudaAbierta > 0) {
+    const promedioPonderadoDias = sumaDiasPonderada / totalDeudaAbierta;
+    A_ratio = Math.max(0, 1 - Math.min(1, promedioPonderadoDias / 42));
+  }
+  const ptsA = Math.round(20 * A_ratio);
+
+  // 4. Racha y cumplimiento de metas R (15 pts)
+  const meta = getStoredMetaSemanal();
+  const { inicio: currInicio } = getWeekRange();
+
+  // Evaluar las últimas 4 semanas
+  let semanasCumplidas = 0;
+  for (let i = 0; i < 4; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    let cobradoEnSemana = 0;
+    movimientosData.forEach((m) => {
+      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+        cobradoEnSemana += Number(m.monto) || 0;
+      }
+    });
+
+    if (cobradoEnSemana >= meta || (i === 0 && cobradoEnSemana > 0 && cobradoEnSemana >= meta * 0.5)) {
+      semanasCumplidas++;
+    }
+  }
+  const R_ratio = Math.min(1, semanasCumplidas / 4);
+  const ptsR = Math.round(15 * R_ratio);
+
+  // Score final sumado y acotado 0-100
+  const scoreTotal = Math.min(100, Math.max(0, ptsT + ptsV + ptsA + ptsR));
+
+  // Determinar Nivel
+  let nivelLabel = 'En arranque';
+  let nivelColor = '#DC2626';
+  let nivelBg = '#FEE2E2';
+
+  if (scoreTotal >= 80) {
+    nivelLabel = 'Imparable';
+    nivelColor = '#00A859';
+    nivelBg = '#D1FAE5';
+  } else if (scoreTotal >= 60) {
+    nivelLabel = 'Cobrador fuerte';
+    nivelColor = '#00B2E3';
+    nivelBg = '#E0F7FB';
+  } else if (scoreTotal >= 40) {
+    nivelLabel = 'Constante';
+    nivelColor = '#D97706';
+    nivelBg = '#FEF3C7';
+  }
+
+  // Siguiente línea de acción derivada del componente más débil (Claude Corrección 4)
+  let lineaAccion = '';
+  const metaActual = getStoredMetaSemanal();
+  const currentWeek = getWeekRange();
+  let cobradoEstaSemana = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), currentWeek)) {
+      cobradoEstaSemana += Number(m.monto) || 0;
+    }
+  });
+  const faltaParaMeta = Math.max(0, metaActual - cobradoEstaSemana);
+
+  if (faltaParaMeta > 0 && (ptsT < 28 || ptsR < 10)) {
+    lineaAccion = `Cobra ${formatMoney(faltaParaMeta)} esta semana para alcanzar tu meta y subir puntaje.`;
+  } else if (peorMorosoAntiguo && peorMorosoAntiguo.dias >= 14 && ptsA < 16) {
+    lineaAccion = `La deuda de ${escapeHtml(peorMorosoAntiguo.cliente)} lleva ${peorMorosoAntiguo.dias} días (${formatMoney(peorMorosoAntiguo.debe)}). Es la más antigua.`;
+  } else if (ptsV < 15) {
+    lineaAccion = `Cierra ciclos pendientes cobrando los saldos de clientes con pedidos abiertos.`;
+  } else if (faltaParaMeta === 0) {
+    lineaAccion = `¡Meta semanal superada! Mantén el ritmo para extender tu racha.`;
+  } else {
+    lineaAccion = `Registra tus cobros a tiempo para mantener tu score en nivel ${nivelLabel}.`;
+  }
+
+  return {
+    scoreTotal,
+    ptsT,
+    ptsV,
+    ptsA,
+    ptsR,
+    nivelLabel,
+    nivelColor,
+    nivelBg,
+    lineaAccion,
+    pagos28,
+    deudaExigible28
+  };
+}
+
+// Calcula la racha activa de semanas consecutivas cumpliendo la meta
+function calculateRachaSemanas() {
+  const meta = getStoredMetaSemanal();
+  const { inicio: currInicio } = getWeekRange();
+  let rachaActual = 0;
+  let recordHistorico = 0;
+  let tempRacha = 0;
+
+  // Analizar hasta 26 semanas hacia atrás
+  const maxSemanas = 26;
+  const resultadosPorSemana = [];
+
+  for (let i = 0; i < maxSemanas; i++) {
+    const wStart = new Date(currInicio);
+    wStart.setDate(currInicio.getDate() - i * 7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const wRange = { inicio: wStart, fin: wEnd };
+
+    let cobrado = 0;
+    movimientosData.forEach((m) => {
+      if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), wRange)) {
+        cobrado += Number(m.monto) || 0;
+      }
+    });
+
+    const cumplio = cobrado >= meta || (i === 0 && cobrado > 0);
+    resultadosPorSemana.push(cumplio);
+  }
+
+  // Racha activa desde la semana actual/anterior hacia atrás
+  for (let i = 0; i < resultadosPorSemana.length; i++) {
+    if (resultadosPorSemana[i]) {
+      rachaActual++;
+    } else {
+      // Si la semana actual (i=0) aún no llega a la meta, no romper la racha si la semana anterior cumplió
+      if (i === 0 && resultadosPorSemana[1]) continue;
+      break;
+    }
+  }
+
+  // Récord histórico
+  resultadosPorSemana.slice().reverse().forEach((cumplio) => {
+    if (cumplio) {
+      tempRacha++;
+      if (tempRacha > recordHistorico) recordHistorico = tempRacha;
+    } else {
+      tempRacha = 0;
+    }
+  });
+
+  if (rachaActual > recordHistorico) recordHistorico = rachaActual;
+
+  return { rachaActual, recordHistorico };
+}
+
+// Calcula el ranking de clientes morosos anclado a referencia fija (Claude Corrección 3)
+function calculateRankingMorosos() {
+  const now = new Date();
+  const allGroups = groupByCliente(movimientosData);
+  const deudores = allGroups.filter((g) => g.debe > 0.005);
+
+  const ranking = deudores.map((g) => {
+    const cicloActual = getMovimientosCicloActual(g.cliente);
+    const primerPedido = cicloActual.find((m) => m.tipo === 'pedido' && m.estado !== 'pagado');
+    const ultimoPago = g.movimientos.find((m) => m.tipo === 'pago');
+
+    const fechaPrimerPedido = primerPedido ? parseLocalDate(getMovimientoFecha(primerPedido)) : null;
+    const fechaUltimoPago = ultimoPago ? parseLocalDate(getMovimientoFecha(ultimoPago)) : null;
+
+    const diasDeuda = fechaPrimerPedido ? Math.max(0, Math.floor((now - fechaPrimerPedido) / (1000 * 60 * 60 * 24))) : 0;
+    const diasSinPago = fechaUltimoPago ? Math.max(0, Math.floor((now - fechaUltimoPago) / (1000 * 60 * 60 * 24))) : Math.max(diasDeuda, 28);
+
+    // Fórmula anclada con DEUDA_ALTA_REF
+    const componenteSaldo = 50 * Math.min(1, Math.max(0, g.debe / DEUDA_ALTA_REF));
+    const componenteDiasDeuda = 35 * Math.min(1, diasDeuda / 42);
+    const componenteDiasSinPago = 15 * Math.min(1, diasSinPago / 28);
+
+    const prioridad = Math.round(componenteSaldo + componenteDiasDeuda + componenteDiasSinPago);
+
+    return {
+      cliente: g.cliente,
+      debe: g.debe,
+      diasDeuda,
+      diasSinPago,
+      prioridad,
+      ultimoPagoFecha: ultimoPago ? getMovimientoFecha(ultimoPago) : null
+    };
+  });
+
+  return ranking.sort((a, b) => b.prioridad - a.prioridad);
+}
+
+function renderGamificacion() {
+  // 1. Render Score
+  const scoreData = calculateScoreCobranza();
+  const scoreNumeroEl = document.getElementById('score-numero');
+  const scoreBadgeEl = document.getElementById('score-nivel-badge');
+  const scoreTasaEl = document.getElementById('score-tasa');
+  const scoreVelEl = document.getElementById('score-velocidad');
+  const scoreAntEl = document.getElementById('score-antiguedad');
+  const scoreRachaEl = document.getElementById('score-racha');
+  const scoreAccionTextoEl = document.getElementById('score-accion-texto');
+
+  if (scoreNumeroEl) scoreNumeroEl.textContent = scoreData.scoreTotal;
+  if (scoreBadgeEl) {
+    scoreBadgeEl.textContent = scoreData.nivelLabel;
+    scoreBadgeEl.style.color = scoreData.nivelColor;
+    scoreBadgeEl.style.background = scoreData.nivelBg;
+  }
+  if (scoreTasaEl) scoreTasaEl.textContent = `${scoreData.ptsT}/40`;
+  if (scoreVelEl) scoreVelEl.textContent = `${scoreData.ptsV}/25`;
+  if (scoreAntEl) scoreAntEl.textContent = `${scoreData.ptsA}/20`;
+  if (scoreRachaEl) scoreRachaEl.textContent = `${scoreData.ptsR}/15`;
+  if (scoreAccionTextoEl) scoreAccionTextoEl.innerHTML = scoreData.lineaAccion;
+
+  // 2. Render Meta Semanal
+  const metaMonto = getStoredMetaSemanal();
+  const currentWeek = getWeekRange();
+  let cobradoSemanaActual = 0;
+  movimientosData.forEach((m) => {
+    if (m.tipo === 'pago' && isSameWeek(getMovimientoFecha(m), currentWeek)) {
+      cobradoSemanaActual += Number(m.monto) || 0;
+    }
+  });
+
+  const porcentajeMeta = Math.min(100, Math.round((cobradoSemanaActual / (metaMonto || 1)) * 100));
+  const metaProgresoTextoEl = document.getElementById('meta-progreso-texto');
+  const metaPorcentajeTextoEl = document.getElementById('meta-porcentaje-texto');
+  const metaProgresoBarraEl = document.getElementById('meta-progreso-barra');
+  const metaSubtextoEl = document.getElementById('meta-subtexto');
+
+  if (metaProgresoTextoEl) {
+    metaProgresoTextoEl.textContent = `${formatMoney(cobradoSemanaActual)} / ${formatMoney(metaMonto)}`;
+  }
+  if (metaPorcentajeTextoEl) {
+    metaPorcentajeTextoEl.textContent = `${porcentajeMeta}%`;
+    metaPorcentajeTextoEl.style.color = porcentajeMeta >= 100 ? '#00A859' : '#00B2E3';
+  }
+  if (metaProgresoBarraEl) {
+    metaProgresoBarraEl.style.width = `${porcentajeMeta}%`;
+    if (porcentajeMeta >= 100) {
+      metaProgresoBarraEl.style.background = 'linear-gradient(90deg, #00A859, #059669)';
+    } else {
+      metaProgresoBarraEl.style.background = 'linear-gradient(90deg, #00B2E3, #00A859)';
+    }
+  }
+  if (metaSubtextoEl) {
+    const falta = Math.max(0, metaMonto - cobradoSemanaActual);
+    metaSubtextoEl.textContent = falta > 0
+      ? `Faltan ${formatMoney(falta)} para cumplir el objetivo`
+      : '¡Objetivo semanal cumplido!';
+  }
+
+  // 3. Render Racha
+  const { rachaActual, recordHistorico } = calculateRachaSemanas();
+  const rachaNumeroEl = document.getElementById('racha-numero');
+  const rachaTituloEl = document.getElementById('racha-titulo');
+  const rachaDetalleEl = document.getElementById('racha-detalle');
+  const rachaRecordEl = document.getElementById('racha-record-label');
+
+  if (rachaNumeroEl) rachaNumeroEl.textContent = rachaActual;
+  if (rachaTituloEl) {
+    rachaTituloEl.textContent = `${rachaActual} semana${rachaActual !== 1 ? 's' : ''} activa${rachaActual !== 1 ? 's' : ''}`;
+  }
+  if (rachaDetalleEl) {
+    rachaDetalleEl.textContent = rachaActual > 0
+      ? '¡Cobranza constante y al día!'
+      : 'Cobra tu meta esta semana para iniciar racha';
+  }
+  if (rachaRecordEl) {
+    rachaRecordEl.textContent = `Récord: ${recordHistorico} sem`;
+  }
+
+  // 4. Render Ranking de Morosos Priorizado
+  renderRankingMorosos();
+}
+
+function renderRankingMorosos() {
+  const container = document.getElementById('ranking-morosos-lista');
+  if (!container) return;
+
+  const ranking = calculateRankingMorosos();
+
+  if (ranking.length === 0) {
+    container.innerHTML = `
+      <div class="py-4 text-center">
+        <span class="material-symbols-outlined text-3xl text-[#00A859] mb-1">check_circle</span>
+        <p class="text-xs font-semibold text-on-surface">¡Excelente! No hay clientes con saldo deudor.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Mostrar top 5 más prioritarios
+  const topMorosos = ranking.slice(0, 5);
+
+  container.innerHTML = topMorosos
+    .map((item, idx) => {
+      const clienteEscaped = escapeHtml(item.cliente);
+      const prioridadColor = item.prioridad >= 70 ? '#DC2626' : item.prioridad >= 40 ? '#EA580C' : '#00667A';
+      const prioridadBg = item.prioridad >= 70 ? '#FEE2E2' : item.prioridad >= 40 ? '#FFEDD5' : '#E0F7FB';
+
+      return `
+        <div class="py-2.5 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background: ${prioridadBg}; color: ${prioridadColor};">
+              ${idx + 1}
+            </span>
+            <div class="min-w-0">
+              <p class="text-[13px] font-bold text-on-surface truncate">${clienteEscaped}</p>
+              <div class="flex items-center gap-2 text-[11px] text-outline truncate">
+                <span>${item.diasDeuda} días en mora</span>
+                <span>\u00B7</span>
+                <span class="font-bold text-[#DC2626]">${formatMoney(item.debe)}</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: ${prioridadBg}; color: ${prioridadColor};" title="Índice de prioridad 0-100">
+              P${item.prioridad}
+            </span>
+            <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90" data-cliente="${clienteEscaped}" title="Compartir cobro por WhatsApp">
+              <span class="material-symbols-outlined text-[16px]" style="color: #00A859;">share</span>
+            </button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
 function updatePedidoFechaInfo() {
   const textEl = document.getElementById('pedido-fecha-text');
   if (!textEl) return;
@@ -2328,6 +2791,7 @@ async function fetchMovimientos() {
     renderPedidosSemanales();
     renderHistorialSemanas();
     updateCharts();
+    renderGamificacion();
     requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
   } catch (err) {
     console.error(err);
@@ -3200,6 +3664,33 @@ document.addEventListener('DOMContentLoaded', () => {
       a.click();
       document.body.removeChild(a);
       showSuccessToast('Descargando imagen...');
+    }
+  });
+  // Modal Meta Semanal Listeners
+  const modalMeta = document.getElementById('modal-meta');
+  const inputMeta = document.getElementById('input-meta-monto');
+  const openMetaModal = () => {
+    if (!modalMeta) return;
+    if (inputMeta) inputMeta.value = getStoredMetaSemanal();
+    modalMeta.classList.remove('hidden');
+    inputMeta?.focus();
+  };
+  const closeMetaModal = () => {
+    if (modalMeta) modalMeta.classList.add('hidden');
+  };
+
+  document.getElementById('btn-editar-meta')?.addEventListener('click', openMetaModal);
+  document.getElementById('modal-meta-cerrar')?.addEventListener('click', closeMetaModal);
+  document.getElementById('modal-meta-cancelar')?.addEventListener('click', closeMetaModal);
+  document.getElementById('modal-meta-guardar')?.addEventListener('click', () => {
+    const val = parseFloat(inputMeta?.value);
+    if (!Number.isNaN(val) && val > 0) {
+      setStoredMetaSemanal(val);
+      renderGamificacion();
+      closeMetaModal();
+      showSuccessToast('Meta actualizada');
+    } else {
+      alert('Ingresa un monto de meta válido mayor a 0');
     }
   });
 

@@ -498,6 +498,99 @@
       </div>
     </div>
 
+    <!-- Gamificación: Score de Cobranza, Meta Semanal y Ranking de Morosos -->
+    <div class="space-y-3 mb-5" id="seccion-gamificacion">
+      <!-- Fila 1: Tarjeta de Score 0-100 con Línea de Acción -->
+      <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm" id="card-score-cobranza">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[20px] text-[#00B2E3]">military_tech</span>
+            <h4 class="text-[14px] font-bold text-on-surface">Puntaje de Cobranza</h4>
+          </div>
+          <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full" id="score-nivel-badge" style="background: #E0F7FB; color: #00667A;">Calculando...</span>
+        </div>
+
+        <div class="flex items-center gap-4 mb-3">
+          <div class="w-16 h-16 rounded-2xl flex flex-col items-center justify-center shrink-0" id="score-numero-wrap" style="background: linear-gradient(135deg, #00B2E3, #002855); color: white;">
+            <span class="text-2xl font-black leading-none" id="score-numero">--</span>
+            <span class="text-[9px] font-bold uppercase opacity-80 mt-0.5">de 100</span>
+          </div>
+          <div class="flex-1 min-w-0 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+            <div><span class="text-outline">Tasa cobro:</span> <strong id="score-tasa" class="text-on-surface">--/40</strong></div>
+            <div><span class="text-outline">Velocidad:</span> <strong id="score-velocidad" class="text-on-surface">--/25</strong></div>
+            <div><span class="text-outline">Antigüedad:</span> <strong id="score-antiguedad" class="text-on-surface">--/20</strong></div>
+            <div><span class="text-outline">Racha:</span> <strong id="score-racha" class="text-on-surface">--/15</strong></div>
+          </div>
+        </div>
+
+        <!-- Línea de Acción (Claude Corrección 4) -->
+        <div class="p-2.5 rounded-xl flex items-center gap-2 text-[12px] font-semibold" id="score-accion-line" style="background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E;">
+          <span class="material-symbols-outlined text-[18px] text-[#D97706] shrink-0">bolt</span>
+          <span id="score-accion-texto" class="truncate">Calculando siguiente acción...</span>
+        </div>
+      </div>
+
+      <!-- Fila 2: Meta Semanal y Racha -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <!-- Card Meta Semanal -->
+        <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between" id="card-meta-semanal">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[18px] text-[#00A859]">flag</span>
+              <h4 class="text-[13px] font-bold text-on-surface">Meta de la semana</h4>
+            </div>
+            <button type="button" class="text-[11px] font-semibold text-[#00B2E3] hover:underline flex items-center gap-0.5" id="btn-editar-meta">
+              <span class="material-symbols-outlined text-[13px]">edit</span> Editar
+            </button>
+          </div>
+          <div class="mb-2">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-[16px] font-black text-on-surface" id="meta-progreso-texto">$0 / $0</span>
+              <span class="text-[12px] font-bold" id="meta-porcentaje-texto" style="color: #00A859;">0%</span>
+            </div>
+            <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full rounded-full transition-all duration-500" id="meta-progreso-barra" style="width: 0%; background: linear-gradient(90deg, #00B2E3, #00A859);"></div>
+            </div>
+          </div>
+          <p class="text-[11px] text-outline truncate" id="meta-subtexto">Cargando meta semanal...</p>
+        </div>
+
+        <!-- Card Racha de Cobranza -->
+        <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between" id="card-racha-cobranza">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[18px] text-[#EA580C]">local_fire_department</span>
+              <h4 class="text-[13px] font-bold text-on-surface">Racha activa</h4>
+            </div>
+            <span class="text-[11px] text-outline" id="racha-record-label">Récord: 0 sem</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style="background: #FFF7ED; color: #EA580C; border: 1px solid #FFEDD5;">
+              <span class="text-xl font-black" id="racha-numero">0</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-[13px] font-bold text-on-surface" id="racha-titulo">0 semanas cumpliendo</p>
+              <p class="text-[11px] text-outline truncate" id="racha-detalle">Registra pagos para mantener la racha</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fila 3: Ranking de Morosos Priorizado -->
+      <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm" id="card-ranking-morosos">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[18px] text-[#DC2626]">priority_high</span>
+            <h4 class="text-[13px] font-bold text-on-surface">Top cobros prioritarios</h4>
+          </div>
+          <span class="text-[11px] text-outline">Anclado por impacto y mora</span>
+        </div>
+        <div class="divide-y divide-gray-100" id="ranking-morosos-lista">
+          <p class="text-xs text-outline py-3 text-center">Sin deudores pendientes</p>
+        </div>
+      </div>
+    </div>
+
     <h3 class="flex items-center gap-2 text-xs font-bold text-on-surface-variant mb-3 px-1 uppercase tracking-wider">
       <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Cuentas de Clientes
@@ -691,6 +784,30 @@
         </div>
       </div>
     </div>
+    <!-- Modal Editar Meta Semanal -->
+    <div class="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-md hidden z-[90]" id="modal-meta">
+      <div class="bg-white shadow-2xl w-full max-w-sm modal-panel border-t sm:border sm:rounded-2xl border-outline-variant/20 flex flex-col p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[#00A859]">flag</span>
+            <h3 class="font-headline-md text-headline-md text-on-surface">Meta de Cobranza</h3>
+          </div>
+          <button type="button" class="p-1.5 rounded-full hover:bg-gray-100 text-on-surface-variant transition-colors" id="modal-meta-cerrar">
+            <span class="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+        <p class="text-xs text-outline mb-3">Establece tu meta semanal de pagos a cobrar (viernes a jueves):</p>
+        <div class="relative mb-4">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
+          <input type="number" step="100" min="0" id="input-meta-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-3 text-[16px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="flex-1 h-11 rounded-full border border-outline-variant bg-white text-on-surface-variant font-semibold text-xs" id="modal-meta-cancelar">Cancelar</button>
+          <button type="button" class="flex-1 h-11 btn-gradient text-white rounded-full font-semibold text-xs shadow-md" id="modal-meta-guardar">Guardar meta</button>
+        </div>
+      </div>
+    </div>
+
     <script src="config.js"></script>
     <script src="vendor/chart.umd.min.js" defer></script>
     <script src="app.js" defer></script>
