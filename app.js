@@ -533,6 +533,21 @@ function normalizeClienteKey(name) {
   return removeAccents(name.trim().toLowerCase()).replace(/\s+/g, ' ');
 }
 
+// ============================================
+// Cache y memoización de clientes y grupos
+// ============================================
+let cachedUniqueClientes = null;
+let cachedCanonicalMap = new Map();
+let cachedGlobalGroupMap = null;
+let cachedGlobalGroupsArray = null;
+
+function invalidateClientesCache() {
+  cachedUniqueClientes = null;
+  cachedCanonicalMap.clear();
+  cachedGlobalGroupMap = null;
+  cachedGlobalGroupsArray = null;
+}
+
 function normalizeClienteNombre(name) {
   return name
     .trim()
@@ -544,16 +559,22 @@ function normalizeClienteNombre(name) {
 }
 
 function getUniqueClientes() {
-  return [...new Set(movimientosData.map((m) => m.cliente.trim()).filter(Boolean))].sort((a, b) =>
+  if (cachedUniqueClientes) return cachedUniqueClientes;
+  cachedUniqueClientes = [...new Set(movimientosData.map((m) => (m.cliente ? m.cliente.trim() : '')).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, 'es')
   );
+  return cachedUniqueClientes;
 }
 
 function getCanonicalClienteNombre(nombre) {
   const key = normalizeClienteKey(nombre);
   if (!key) return normalizeClienteNombre(nombre);
+  if (cachedCanonicalMap.has(key)) return cachedCanonicalMap.get(key);
+
   const match = getUniqueClientes().find((c) => normalizeClienteKey(c) === key);
-  return match || normalizeClienteNombre(nombre);
+  const canonical = match || normalizeClienteNombre(nombre);
+  cachedCanonicalMap.set(key, canonical);
+  return canonical;
 }
 
 function findSimilarClientes(nombre, maxResults = 3) {
@@ -616,7 +637,9 @@ function getClienteSaldo(nombre) {
   if (!group) return null;
   return {
     debe: group.debe,
-    totalPedido: group.totalPedido,
+    totalVentas: group.totalVentas,
+    totalCobrable: group.totalCobrable,
+    totalPedido: group.totalVentas,
     totalPagado: group.totalPagado,
   };
 }
@@ -1284,6 +1307,11 @@ function getFilteredMovimientos() {
 // - debe: saldo exigible (totalCobrable - totalPagado)
 // - movimientos ordenados por fecha efectiva (getMovimientoDateTime)
 function groupByCliente(movimientos) {
+  const isGlobal = movimientos === movimientosData;
+  if (isGlobal && cachedGlobalGroupsArray) {
+    return cachedGlobalGroupsArray;
+  }
+
   const groups = new Map();
 
   movimientos.forEach((mov) => {
@@ -1317,7 +1345,7 @@ function groupByCliente(movimientos) {
     }
   });
 
-  return Array.from(groups.values())
+  const result = Array.from(groups.values())
     .map((group) => ({
       ...group,
       debe: group.totalCobrable - group.totalPagado,
@@ -1331,6 +1359,12 @@ function groupByCliente(movimientos) {
       }),
     }))
     .sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'));
+
+  if (isGlobal) {
+    cachedGlobalGroupsArray = result;
+  }
+
+  return result;
 }
 
 function renderMovimientoItem(mov) {
@@ -1559,22 +1593,14 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}, targetWidth = 108
 
   const gap = 12;
   const padding = 16;
-  const count = blobs.length;
+  const initialCols = blobs.length >= 5 ? 3 : blobs.length >= 2 ? 2 : 1;
+  const celdaEstimate = Math.floor((targetWidth - padding * 2 - (initialCols - 1) * gap) / initialCols);
 
-  let cols = 1;
-  if (count >= 5) cols = 3;
-  else if (count >= 2) cols = 2;
-
-  const rows = Math.ceil(count / cols);
-  const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
-  const celda = Math.floor(availableWidth / cols);
-  const headerHeight = Math.round(160 * (targetWidth / 1080));
-
-  // Decodificar todos los blobs ya redimensionados a `celda` para no saturar memoria
+  // Decodificar todos los blobs ya redimensionados a `celdaEstimate` para no saturar memoria
   const decodedItems = [];
   for (const blob of blobs) {
     try {
-      const drawable = await decodeImageBlob(blob, celda);
+      const drawable = await decodeImageBlob(blob, celdaEstimate);
       if (drawable) decodedItems.push(drawable);
     } catch (err) {
       console.warn('decode_failed_item:', err);
@@ -1582,6 +1608,17 @@ async function crearCollageDesdeBlobs(blobs, infoCliente = {}, targetWidth = 108
   }
 
   if (!decodedItems.length) return null;
+
+  // Recalcular grid exacto con las imágenes que realmente se pudieron decodificar
+  const validCount = decodedItems.length;
+  let cols = 1;
+  if (validCount >= 5) cols = 3;
+  else if (validCount >= 2) cols = 2;
+
+  const rows = Math.ceil(validCount / cols);
+  const availableWidth = targetWidth - padding * 2 - (cols - 1) * gap;
+  const celda = Math.floor(availableWidth / cols);
+  const headerHeight = Math.round(160 * (targetWidth / 1080));
 
   const canvas = document.createElement('canvas');
   try {
@@ -1877,11 +1914,11 @@ async function executeShareFromModal() {
   const modal = document.getElementById('modal-compartir-cobro');
 
   // Copiar al portapapeles en segundo plano sin bloquear (sin await antes de share)
-  const copyPromise = (navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
-    ? navigator.clipboard.writeText(text).then(() => {
-        showSuccessToast('Mensaje copiado al portapapeles');
-      }).catch(() => {})
-    : Promise.resolve();
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).then(() => {
+      showSuccessToast('Mensaje copiado al portapapeles');
+    }).catch(() => {});
+  }
 
   if (file && navigator.share && navigator.canShare) {
     const sharePayload = { files: [file] };
@@ -1977,9 +2014,10 @@ function renderClientes() {
                 <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Compartir por WhatsApp">
                   <span class="material-symbols-outlined text-[14px]" style="color: #00A859;">share</span>
                 </button>
-                <div class="flex gap-3 mt-0.5 text-[11px] text-outline">
-                  <span>Pedido: ${formatMoney(group.totalPedido)}</span>
+                <div class="flex gap-3 mt-0.5 text-[11px] text-outline flex-wrap">
+                  <span>Cobrable: ${formatMoney(group.totalCobrable)}</span>
                   <span>Pagado: ${formatMoney(group.totalPagado)}</span>
+                  ${group.totalVentas !== group.totalCobrable ? `<span>Total pedidos: ${formatMoney(group.totalVentas)}</span>` : ''}
                 </div>
               </div>
               <div class="text-right shrink-0">
@@ -2012,6 +2050,7 @@ async function fetchMovimientos() {
     if (error) throw error;
 
     movimientosData = data || [];
+    invalidateClientesCache();
     await fetchPerfilesAdmin();
     refreshClienteDatalist();
     renderClientes();
