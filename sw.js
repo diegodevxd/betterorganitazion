@@ -31,9 +31,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // No cachear config.js para permitir rotación inmediata de credenciales
+  // config.js: red primero con fallback a cache para no bloquear arranque offline sin perder rotación
   if (url.pathname.endsWith('/config.js') || url.pathname === '/config.js') {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match(event.request))
+    );
     return;
   }
 

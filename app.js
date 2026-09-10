@@ -565,6 +565,7 @@ function updateCharts() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         animation: { duration: animationDuration },
         plugins: {
           legend: {
@@ -620,6 +621,7 @@ function updateCharts() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
         animation: { duration: animationDuration },
         plugins: {
           legend: {
@@ -646,14 +648,25 @@ function updateCharts() {
     });
   }
 
-  // --- Gráfico 3: Dona de Cartera (Deuda vs Al corriente vs Saldo a favor) ---
+  // --- Gráfico 3: Dona de Cartera (Clientes en deuda vs al corriente vs con saldo a favor) ---
   const groups = groupByCliente(movimientosData);
-  const deudoresMonto = groups.filter((g) => g.debe > 0.005).reduce((s, g) => s + g.debe, 0);
-  const alDiaMonto = groups.filter((g) => Math.abs(g.debe) <= 0.005).reduce((s, g) => s + g.totalVentas, 0);
-  const favorMonto = groups.filter((g) => g.debe < -0.005).reduce((s, g) => s + Math.abs(g.debe), 0);
+  const deudoresGroups = groups.filter((g) => g.debe > 0.005);
+  const alDiaGroups = groups.filter((g) => Math.abs(g.debe) <= 0.005);
+  const favorGroups = groups.filter((g) => g.debe < -0.005);
+
+  const deudoresCount = deudoresGroups.length;
+  const alDiaCount = alDiaGroups.length;
+  const favorCount = favorGroups.length;
+
+  const deudoresMonto = deudoresGroups.reduce((s, g) => s + g.debe, 0);
+  const alDiaMonto = alDiaGroups.reduce((s, g) => s + g.totalCobrable, 0);
+  const favorMonto = favorGroups.reduce((s, g) => s + Math.abs(g.debe), 0);
 
   const donaLabels = ['En deuda', 'Al corriente', 'Saldo a favor'];
-  const donaData = [deudoresMonto, alDiaMonto, favorMonto];
+  const donaData = [deudoresCount, alDiaCount, favorCount];
+  const donaMontos = [deudoresMonto, alDiaMonto, favorMonto];
+
+  const maxDpr = Math.min(window.devicePixelRatio || 1, 2);
 
   if (chartDonaInstance) {
     chartDonaInstance.data.datasets[0].data = donaData;
@@ -675,6 +688,7 @@ function updateCharts() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        devicePixelRatio: maxDpr,
         animation: { duration: animationDuration },
         plugins: {
           legend: {
@@ -683,7 +697,12 @@ function updateCharts() {
           },
           tooltip: {
             callbacks: {
-              label: (ctx) => ` ${ctx.label}: ${formatMoney(ctx.parsed)}`
+              label: (ctx) => {
+                const count = ctx.parsed || 0;
+                const idx = ctx.dataIndex;
+                const monto = donaMontos[idx] || 0;
+                return ` ${ctx.label}: ${count} cliente${count !== 1 ? 's' : ''} (${formatMoney(monto)})`;
+              }
             }
           }
         },
@@ -721,8 +740,6 @@ function renderDashboard() {
       <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
     </div>
   `;
-
-  updateCharts();
 }
 
 function updatePedidoFechaInfo() {
@@ -1504,6 +1521,16 @@ function initNavigation() {
 
     if (!drawerOverlay.classList.contains('hidden')) closeDrawer();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    if (targetId === 'vista-clientes') {
+      requestAnimationFrame(() => {
+        try {
+          chartHistoricoInstance?.resize();
+          chartBarrasInstance?.resize();
+          chartDonaInstance?.resize();
+        } catch {}
+      });
+    }
   }
 
   switchViewFn = switchView;
@@ -2300,6 +2327,7 @@ async function fetchMovimientos() {
     renderClientes();
     renderPedidosSemanales();
     renderHistorialSemanas();
+    updateCharts();
     requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
   } catch (err) {
     console.error(err);
