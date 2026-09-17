@@ -1857,9 +1857,11 @@ function openRenameClienteGrupo(clienteNombre) {
 // ============================================
 // Modal de edición
 // ============================================
-function openModal(title, bodyHtml, onSave) {
+function openModal(title, bodyHtml, onSave, saveLabel = 'Guardar cambios') {
   const modal = document.getElementById('modal-editar');
   document.getElementById('modal-editar-title').textContent = title;
+  const saveBtn = document.getElementById('modal-editar-guardar');
+  if (saveBtn) saveBtn.textContent = saveLabel;
   document.getElementById('modal-editar-body').innerHTML = bodyHtml;
   modalSaveHandler = onSave;
   modal?.classList.remove('hidden');
@@ -1992,6 +1994,126 @@ function openEditMovimiento(id) {
   } else {
     setupDropzone('dropzone-edit-pago', 'edit-foto-pago', 'preview-modal', true);
   }
+}
+
+// Alta rápida de pedido/pago desde la tarjeta del cliente (sin subir al formulario)
+function openNuevoMovimientoCliente(clienteNombre, tipoInicial = 'pedido') {
+  if (!clienteNombre) return;
+  const now = new Date();
+  const horaVal = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const saldo = getClienteSaldo(clienteNombre);
+  const saldoHtml = saldo
+    ? `<p class="text-[12px] mt-xs" style="color: ${saldo.debe > 0 ? '#DC2626' : '#00A859'};">${saldo.debe > 0 ? 'Debe' : saldo.debe < 0 ? 'Saldo a favor' : 'Al corriente'}: ${formatMoney(Math.abs(saldo.debe))}</p>`
+    : '';
+
+  const bodyHtml = `
+    <div class="space-y-md">
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Cliente</label>
+        <input class="form-input w-full rounded-lg border-outline-variant bg-surface-container-low px-md py-sm" type="text" value="${escapeHtml(clienteNombre)}" readonly>
+        ${saldoHtml}
+      </div>
+      <div class="flex gap-sm">
+        <button type="button" class="nuevo-mov-tipo flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" data-tipo="pedido">
+          <span class="material-symbols-outlined text-[20px]">shopping_cart</span> Pedido
+        </button>
+        <button type="button" class="nuevo-mov-tipo flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" data-tipo="pago">
+          <span class="material-symbols-outlined text-[20px]">payments</span> Pago
+        </button>
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Monto ($)</label>
+        <input class="form-input w-full rounded-lg border-outline-variant bg-surface px-md py-sm" id="nuevo-mov-monto" min="0.01" step="0.01" type="number" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Descripción (opcional)</label>
+        <input class="form-input w-full rounded-lg border-outline-variant bg-surface px-md py-sm" id="nuevo-mov-descripcion" type="text">
+      </div>
+      <div class="grid grid-cols-2 gap-md hidden" id="nuevo-mov-fecha-hora">
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Fecha</label>
+          <input class="form-input w-full rounded-lg border-outline-variant bg-surface px-md py-sm" id="nuevo-mov-fecha" type="date" value="${getTodayLocalDateString()}">
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-xs">Hora</label>
+          <input class="form-input w-full rounded-lg border-outline-variant bg-surface px-md py-sm" id="nuevo-mov-hora" type="time" value="${horaVal}">
+        </div>
+      </div>
+      <div>
+        <input accept="image/*" class="hidden" id="nuevo-mov-fotos" multiple type="file">
+        <div class="w-full h-24 border-2 border-dashed border-outline-variant rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors" data-default-label="Agregar fotos" id="dropzone-nuevo-mov">
+          <span class="material-symbols-outlined text-[28px]" style="color: #66D0F0;">add_a_photo</span>
+          <span class="font-label-md text-label-md text-outline">Agregar fotos</span>
+        </div>
+        <div class="preview-grid hidden" id="preview-modal"></div>
+      </div>
+    </div>
+  `;
+
+  let tipo = tipoInicial === 'pago' ? 'pago' : 'pedido';
+  const activeClasses = ['btn-gradient', 'text-white'];
+  const inactiveClasses = ['bg-surface-container-high', 'text-on-surface-variant'];
+  const applyTipo = () => {
+    document.querySelectorAll('.nuevo-mov-tipo').forEach((btn) => {
+      const on = btn.dataset.tipo === tipo;
+      btn.classList.remove(...(on ? inactiveClasses : activeClasses));
+      btn.classList.add(...(on ? activeClasses : inactiveClasses));
+    });
+    document.getElementById('nuevo-mov-fecha-hora')?.classList.toggle('hidden', tipo !== 'pago');
+    const titleEl = document.getElementById('modal-editar-title');
+    if (titleEl) titleEl.textContent = tipo === 'pago' ? 'Nuevo pago' : 'Nuevo pedido';
+    const saveBtn = document.getElementById('modal-editar-guardar');
+    if (saveBtn) saveBtn.textContent = tipo === 'pago' ? 'Guardar pago' : 'Guardar pedido';
+  };
+
+  openModal('Nuevo movimiento', bodyHtml, () => saveNuevoMovimientoCliente(clienteNombre, tipo));
+  document.querySelectorAll('.nuevo-mov-tipo').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      tipo = btn.dataset.tipo;
+      applyTipo();
+    })
+  );
+  applyTipo();
+  setupDropzone('dropzone-nuevo-mov', 'nuevo-mov-fotos', 'preview-modal', true);
+}
+
+async function saveNuevoMovimientoCliente(cliente, tipo) {
+  const monto = parseFloat(document.getElementById('nuevo-mov-monto')?.value);
+  const descripcion = document.getElementById('nuevo-mov-descripcion')?.value.trim();
+
+  if (Number.isNaN(monto) || monto <= 0) {
+    alert('Ingrese un monto válido.');
+    return;
+  }
+
+  const arrayUrlsFotos = [];
+  const fotosInput = document.getElementById('nuevo-mov-fotos');
+  if (fotosInput?.files?.length) {
+    for (const file of fotosInput.files) {
+      const compressed = await compressImage(file);
+      arrayUrlsFotos.push(await uploadToStorage(compressed));
+    }
+  }
+
+  const payload = {
+    cliente,
+    tipo,
+    monto,
+    descripcion: descripcion || null,
+    array_urls_fotos: arrayUrlsFotos,
+    fecha: getTodayLocalDateString(),
+  };
+  if (tipo === 'pago') {
+    payload.fecha = document.getElementById('nuevo-mov-fecha')?.value || payload.fecha;
+    payload.hora = document.getElementById('nuevo-mov-hora')?.value || null;
+  }
+
+  const { error } = await getSupabase().from('movimientos').insert(payload);
+  if (error) throw error;
+
+  closeModal();
+  await fetchMovimientos();
+  showSuccessToast(tipo === 'pago' ? 'Pago guardado' : 'Pedido guardado');
 }
 
 async function saveEditMovimiento(id) {
@@ -2186,6 +2308,12 @@ function setupEditDelegation(containerId, type) {
     const renameBtn = event.target.closest('.btn-rename-cliente');
     if (renameBtn) {
       openRenameClienteGrupo(renameBtn.dataset.cliente);
+      return;
+    }
+
+    const nuevoMovBtn = event.target.closest('.btn-nuevo-mov-cliente');
+    if (nuevoMovBtn) {
+      openNuevoMovimientoCliente(nuevoMovBtn.dataset.cliente, nuevoMovBtn.dataset.tipo);
       return;
     }
 
@@ -3089,6 +3217,14 @@ function renderClientes() {
                 <p class="text-[11px]" style="color: ${debeColor};">${debeLabel}</p>
                 <p class="text-base ${debeClass}" style="color: ${debeColor};">${formatMoney(Math.abs(group.debe))}</p>
               </div>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #E0F7FB; color: #00667A;" data-cliente="${cliente}" data-tipo="pedido">
+                <span class="material-symbols-outlined text-[18px]">add_shopping_cart</span> Pedido
+              </button>
+              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #DCFCE7; color: #166534;" data-cliente="${cliente}" data-tipo="pago">
+                <span class="material-symbols-outlined text-[18px]">payments</span> Pago
+              </button>
             </div>
             <div class="mt-2">
               ${group.movimientos.map(renderMovimientoItem).join('')}

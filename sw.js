@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bettermancera-v5';
+const CACHE_NAME = 'bettermancera-v6';
 const APP_SHELL = [
   './',
   './index.html',
