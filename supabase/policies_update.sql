@@ -1,18 +1,18 @@
--- Ejecutar en Supabase SQL Editor (después de movimientos.sql)
--- Permite editar registros desde la app
+-- Ejecutar en Supabase SQL Editor (después de movimientos.sql y de crear public.es_admin())
+-- Permite editar y eliminar registros únicamente a administradores autenticados
 
-create policy "anon actualiza movimientos"
-on movimientos for update to anon
-using (true) with check (true);
+create policy "admins actualizan movimientos"
+on movimientos for update to authenticated
+using (public.es_admin()) with check (public.es_admin());
 
-create policy "anon actualiza asociados"
-on asociados for update to anon
-using (true) with check (true);
+create policy "admins actualizan asociados"
+on asociados for update to authenticated
+using (public.es_admin()) with check (public.es_admin());
 
-create policy "anon elimina movimientos"
-on movimientos for delete to anon
-using (true);
+create policy "admins eliminan movimientos"
+on movimientos for delete to authenticated
+using (public.es_admin());
 
-create policy "anon elimina asociados"
-on asociados for delete to anon
-using (true);
+create policy "admins eliminan asociados"
+on asociados for delete to authenticated
+using (public.es_admin());

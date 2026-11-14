@@ -1,5 +1,5 @@
 -- Ejecutar en Supabase SQL Editor
--- Unifica pagos + ventas en tabla movimientos
+-- Unifica pagos + ventas en tabla movimientos y restringe acceso a administradores (public.es_admin())
 
 drop table if exists pagos;
 drop table if exists ventas;
@@ -19,18 +19,23 @@ create table movimientos (
 
 alter table movimientos enable row level security;
 
-create policy "anon lee movimientos" on movimientos for select to anon using (true);
-create policy "anon inserta movimientos" on movimientos for insert to anon with check (true);
+create policy "admins leen movimientos"
+on movimientos for select to authenticated
+using (public.es_admin());
+
+create policy "admins insertan movimientos"
+on movimientos for insert to authenticated
+with check (public.es_admin());
 
 -- Storage bucket movimientos_fotos
 insert into storage.buckets (id, name, public)
 values ('movimientos_fotos', 'movimientos_fotos', true)
 on conflict (id) do update set public = true;
 
-create policy "anon sube movimientos_fotos"
-on storage.objects for insert to anon
-with check (bucket_id = 'movimientos_fotos');
+create policy "admins suben movimientos_fotos"
+on storage.objects for insert to authenticated
+with check (bucket_id = 'movimientos_fotos' and public.es_admin());
 
-create policy "anon lee movimientos_fotos"
-on storage.objects for select to anon
-using (bucket_id = 'movimientos_fotos');
+create policy "admins leen movimientos_fotos"
+on storage.objects for select to authenticated
+using (bucket_id = 'movimientos_fotos' and public.es_admin());
