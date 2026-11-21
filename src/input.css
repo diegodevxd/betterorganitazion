@@ -1,0 +1,364 @@
+/* Fuente de entrada para Tailwind. Genera styles.css con: npm run build:css */
+
+/* ---- Tipografías locales (funcionan sin internet) ---- */
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('vendor/fonts/hanken-grotesk-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('vendor/fonts/hanken-grotesk-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  font-style: normal;
+  font-weight: 700 900;
+  font-display: swap;
+  src: url('vendor/fonts/hanken-grotesk-latin-700-normal.woff2') format('woff2');
+}
+/* Subconjunto con solo los íconos usados. Si agregas un ícono nuevo: python3 scripts/build-icons.py */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('vendor/fonts/material-symbols-outlined-subset.woff2') format('woff2');
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Tamaño de letra global: todo el panel está en rem, así que esto escala
+     textos, botones, íconos y espacios a la vez. Lo controla prefs.js. */
+  html { font-size: 118.75%; }               /* "Grande" (19px), por defecto */
+  html[data-text-size="normal"] { font-size: 100%; }
+  html[data-text-size="grande"] { font-size: 118.75%; }
+  html[data-text-size="muy-grande"] { font-size: 137.5%; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.5rem;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+    -webkit-tap-highlight-color: transparent;
+    background: #FFFFFF;
+}
+.pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+@media (display-mode: standalone) {
+    header.fixed.top-0 {
+        padding-top: env(safe-area-inset-top);
+        height: calc(4rem + env(safe-area-inset-top));
+    }
+    main.pt-20 {
+        padding-top: calc(5rem + env(safe-area-inset-top));
+    }
+    #toast-container {
+        top: calc(5rem + env(safe-area-inset-top));
+    }
+}
+#ios-install-banner.hidden {
+    display: none !important;
+}
+.view-section {
+    display: none;
+    animation: fadeIn 0.3s ease-in-out;
+}
+.view-section.active {
+    display: block;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(0.625rem); }
+    to { opacity: 1; transform: translateY(0); }
+}
+/* Form Input Focus — Betterware Blue */
+.form-input {
+    border: 1.5px solid #E5E7EB;
+    transition: all 0.2s ease;
+}
+.form-input:focus {
+    box-shadow: 0 0 0 3px rgba(0, 178, 227, 0.2);
+    border-color: #00B2E3;
+    outline: none;
+}
+/* Drawer */
+#drawer-overlay.hidden {
+    display: none !important;
+    pointer-events: none;
+}
+#nav-drawer {
+    transform: translateX(-100%);
+}
+#nav-drawer.drawer-open {
+    transform: translateX(0);
+}
+/* Photo Previews */
+.preview-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+.preview-thumb {
+    width: 5rem;
+    height: 5rem;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 2px solid #E5E7EB;
+}
+/* Toast */
+#toast-container {
+    position: fixed;
+    top: 5rem;
+    left: 1rem;
+    right: 1rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+.success-toast {
+    max-width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
+    border: 1px solid #B3E5FC;
+    box-shadow: 0 4px 16px rgba(0, 178, 227, 0.15);
+    opacity: 0;
+    transform: translateY(-0.75rem) scale(0.95);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.success-toast.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+.success-toast.hide {
+    opacity: 0;
+    transform: translateY(-0.5rem) scale(0.95);
+}
+.success-toast .toast-icon {
+    color: #00B2E3;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+.success-toast .toast-text {
+    color: #00667A;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+.success-toast.has-action {
+    pointer-events: auto;
+    flex-direction: column;
+    align-items: stretch;
+    border-radius: 16px;
+    padding: 0.875rem 1rem;
+    min-width: 16.25rem;
+}
+.toast-action-btn {
+    margin-top: 0.625rem;
+    width: 100%;
+    height: 2.25rem;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #00B2E3, #002855);
+    color: white;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    border: none;
+    cursor: pointer;
+}
+.toast-action-btn:active {
+    transform: scale(0.98);
+}
+/* Edit / Delete buttons */
+#modal-editar {
+    z-index: 80;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+#modal-editar.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+.modal-panel {
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+    border-radius: 20px 20px 0 0;
+    transform: translateY(0);
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+#modal-editar.hidden .modal-panel {
+    transform: translateY(100%);
+}
+@media (min-width: 40rem) {
+    .modal-panel {
+        border-radius: 20px;
+        transform: translateY(0) scale(1);
+        transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    #modal-editar.hidden .modal-panel {
+        transform: translateY(0) scale(0.95);
+    }
+}
+/* Edit Button — Betterware Blue */
+.btn-editar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    background: transparent;
+    color: #00B2E3;
+    border: 1.5px solid rgba(0, 178, 227, 0.25);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+.btn-editar:active {
+    background: #E0F7FB;
+    transform: scale(0.95);
+}
+.btn-eliminar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.625rem;
+    border-radius: 9999px;
+    background: transparent;
+    color: #DC2626;
+    border: 1.5px solid rgba(220, 38, 38, 0.25);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+.btn-eliminar:active {
+    background: #FEE2E2;
+    transform: scale(0.95);
+}
+.chip-sugerencia-cliente {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    margin-top: 0.375rem;
+    margin-right: 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1.5px solid #00B2E3;
+    background: #E0F7FB;
+    color: #00667A;
+    cursor: pointer;
+}
+.chip-sugerencia-cliente:active {
+    transform: scale(0.96);
+}
+.pedido-fecha-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    margin-bottom: 0.75rem;
+    border-radius: 12px;
+    background: #E0F7FB;
+    border: 1px solid #B3E5FC;
+    color: #00667A;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+/* Modal — Bottom Sheet */
+.chip-filtro {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border: 1.5px solid #E5E7EB;
+    background: #ffffff;
+    color: #6B7280;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    white-space: nowrap;
+}
+.chip-filtro:active {
+    transform: scale(0.96);
+}
+.chip-filtro.active {
+    background: #E0F7FB;
+    color: #00667A;
+    border-color: #00B2E3;
+}
+.chip-filtro .chip-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: rgba(0,0,0,0.06);
+    color: inherit;
+}
+.chip-filtro.active .chip-count {
+    background: rgba(0,102,122,0.12);
+}
+/* Dropzones — Betterware Blue Gradient */
+.dropzone {
+    border: 2px dashed #66D0F0;
+    background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
+    border-radius: 16px;
+    transition: all 0.2s ease;
+}
+.dropzone:active {
+    transform: scale(0.98);
+    border-color: #00B2E3;
+    background: linear-gradient(135deg, #E0F7FB, #B3E5FC);
+}
+/* Gradient Buttons */
+.btn-gradient {
+    background: linear-gradient(135deg, #00B2E3, #002855);
+    box-shadow: 0 2px 8px rgba(0, 178, 227, 0.3);
+}
+.btn-gradient:active {
+    transform: scale(0.98);
+}
+/* En letra "Enorme" el círculo de iniciales roba ancho al nombre y montos */
+html[data-text-size="muy-grande"] .avatar-iniciales {
+    display: none;
+}

@@ -8,13 +8,29 @@ Panel administrativo tipo PWA (*Progressive Web App*) para gestionar pedidos, pa
 - **Gestión de ciclos de deuda:** Agrupación cronológica por fecha y hora efectiva de cada movimiento para calcular saldos vigentes por ciclo, historial de abonos y conciliación de pagos en línea.
 - **Analítica y gamificación de cobranza:** Gráficos interactivos con Chart.js (evolución semanal de ventas vs. cobranza, desglose por cliente) y motor de puntaje de cobranza (`0–100`) con meta semanal, racha activa y ranking priorizado de cuentas vencidas.
 - **Collage de comprobantes para WhatsApp:** Generador de tarjetas resumen en HTML5 Canvas (`image/jpeg`) que combina cabecera de saldo y miniaturas de pedidos/comprobantes para enviarlo mediante la Web Share API nativa en móviles.
-- **Arquitectura PWA offline-first:** `manifest.webmanifest`, caché de assets estáticos mediante Service Worker (`sw.js`) y vendorización local de librerías de gráficas.
+- **Funciona sin internet:**
+  - El Service Worker (`sw.js`) guarda la app completa, y todas las librerías y tipografías están en `vendor/` (no se usa ningún CDN).
+  - `offline.js` guarda en IndexedDB la última copia de los datos y una bandeja de salida: los pedidos, pagos y asociados registrados sin señal (con sus fotos) se envían solos al volver el internet.
+  - Editar, borrar o renombrar sí requiere conexión.
+- **Letra grande / accesibilidad:** todo el panel usa `rem`. El botón **A+** del encabezado y el menú lateral cambian entre Normal (16 px), Grande (19 px, por defecto) y Enorme (22 px). Se puede hacer zoom con los dedos.
 
 ## Stack
 
 - **Frontend:** HTML5, Tailwind CSS, JavaScript vanilla, Chart.js 4
 - **Backend / BaaS:** Supabase (PostgreSQL, Auth, Storage, Edge Functions con Deno/Stripe)
 - **Despliegue:** Vercel
+
+## Estilos e íconos
+
+- `styles.css` se genera con Tailwind desde `src/input.css` y **se versiona** (Vercel no instala dependencias). Tras cambiar clases en `index.html` o `app.js`:
+
+  ```bash
+  npm install
+  npm run build:css
+  ```
+
+- Los íconos de Material Symbols son un subconjunto de unos 7 KB. Si agregas un ícono nuevo, ejecuta `pip install fonttools brotli && npm run build:icons`; si no, se verá el nombre del ícono como texto.
+- Tras cambiar archivos de `vendor/` o la lista de `APP_SHELL`, sube `CACHE_VERSION` en `sw.js`.
 
 ## Configuración local y despliegue
 

@@ -7,3 +7,4 @@ usuarios/config.js
 .vscode/
 # usuarios/ es un repositorio git independiente (Bettermancera), no lo trackees aqui
 usuarios/
+node_modules/

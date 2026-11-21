@@ -24,6 +24,10 @@ let filtroSemanalSaldo = 'todos';
 let filtroOrigen = 'todos';
 let switchViewFn = null;
 const previewUrls = new Map();
+// Datos tal como llegaron del servidor (o de la copia local si no hay internet).
+// movimientosData/asociadosData = esto + los registros pendientes de enviar.
+let movimientosServidor = [];
+let asociadosServidor = [];
 
 function getSupabase() {
   if (supabaseClient) return supabaseClient;
@@ -102,7 +106,9 @@ async function verifyEsAdmin() {
     if (error) {
       return { ok: false, error };
     }
-    return { ok: true, esAdmin: Boolean(data) };
+    const esAdmin = Boolean(data);
+    if (esAdmin) rememberAdminVerificado();
+    return { ok: true, esAdmin };
   } catch (err) {
     return { ok: false, error: err };
   }
@@ -181,11 +187,20 @@ async function handleLoginSubmit(event) {
 }
 
 async function handleLogout() {
+  const pendientes = await contarPendientes();
+  if (pendientes > 0) {
+    const ok = confirm(
+      `Tienes ${pendientes} registro(s) guardados en este teléfono que todavía NO se envían.\n\n` +
+        'Si cierras sesión se perderán. ¿Cerrar sesión de todos modos?'
+    );
+    if (!ok) return;
+  }
   try {
-    await getSupabase().auth.signOut();
+    await getSupabase().auth.signOut({ scope: navigator.onLine ? 'global' : 'local' });
   } catch (err) {
     console.warn('signOut error:', err);
   } finally {
+    await borrarDatosLocales();
     showLoginScreen();
   }
 }
@@ -201,12 +216,19 @@ async function onAdminAuthenticated() {
   } catch (err) {
     console.error('Error al cargar datos de panel tras login:', err);
   }
+  sincronizarPendientes();
 }
 
 async function checkInitialAdminSession() {
   try {
     const { data, error } = await getSupabase().auth.getSession();
     if (error || !data?.session?.user) {
+      // Sin internet el token vencido no se puede renovar: si este teléfono ya
+      // fue verificado como admin, se entra en modo sin conexión con los datos guardados.
+      if ((!navigator.onLine || isNetworkError(error)) && puedeEntrarSinConexion()) {
+        await onAdminAuthenticated();
+        return;
+      }
       showLoginScreen();
       return;
     }
@@ -216,6 +238,10 @@ async function checkInitialAdminSession() {
     if (!resAdmin.ok) {
       // Falla de red: NO hacer signOut para no expulsar al usuario
       console.warn('Fallo de red al verificar sesión admin existente:', resAdmin.error);
+      if (isNetworkError(resAdmin.error) && puedeEntrarSinConexion()) {
+        await onAdminAuthenticated();
+        return;
+      }
       showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
       return;
     }
@@ -261,7 +287,11 @@ function setupAuthListeners() {
           const resAdmin = await verifyEsAdmin();
           if (!resAdmin.ok) {
             isAuthenticating = false;
-            showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
+            if (isNetworkError(resAdmin.error) && puedeEntrarSinConexion()) {
+              await onAdminAuthenticated();
+            } else {
+              showLoginScreen('No se pudo verificar tu acceso. Revisa tu conexión.', true);
+            }
           } else if (resAdmin.esAdmin) {
             await onAdminAuthenticated();
           } else {
@@ -278,17 +308,407 @@ function setupAuthListeners() {
 }
 
 async function fetchPerfilesAdmin() {
+  let perfiles;
   try {
-    const { data, error } = await getSupabase().from('perfiles').select('*');
+    const { data, error } = await getSupabase().from('perfiles').select('id, nombre, apellidos, telefono, ciudad');
     if (error) throw error;
-    perfilesAdminData = {};
-    (data || []).forEach(function (p) {
-      if (p.id) perfilesAdminData[p.id] = p;
-    });
+    perfiles = data || [];
+    window.BMStore?.cacheSet('perfiles', perfiles);
   } catch (err) {
     console.warn('Error al cargar perfiles para admin:', err);
-    perfilesAdminData = {};
+    const cached = await window.BMStore?.cacheGet('perfiles');
+    perfiles = cached?.value || [];
   }
+  perfilesAdminData = {};
+  perfiles.forEach(function (p) {
+    if (p.id) perfilesAdminData[p.id] = p;
+  });
+}
+
+// ============================================
+// Modo sin internet
+// - Lectura: se guarda una copia de los datos en el teléfono (BMStore).
+// - Escritura: pedidos, pagos y altas creados sin señal van a una bandeja
+//   de salida (con sus fotos) y se envían solos cuando vuelve el internet.
+// - Editar / borrar / renombrar requieren internet (evita conflictos).
+// ============================================
+const ADMIN_VERIFICADO_KEY = 'bm-admin-verificado';
+const SUPABASE_AUTH_KEY = 'bm-admin-auth';
+let mostrandoCopiaLocal = false;
+let copiaLocalGuardadaEn = null;
+let pendientesCount = 0;
+let sincronizando = false;
+
+function isNetworkError(err) {
+  if (!err) return !navigator.onLine;
+  if (!navigator.onLine) return true;
+  const msg = `${err.name || ''} ${err.message || ''} ${err.details || ''} ${err}`;
+  return /failed to fetch|networkerror|network error|load failed|network request failed|fetch failed|err_internet|err_network|timed? ?out|aborted/i.test(msg);
+}
+
+function getStoredSessionUserId() {
+  try {
+    const raw = localStorage.getItem(SUPABASE_AUTH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.user?.id || parsed?.currentSession?.user?.id || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function rememberAdminVerificado() {
+  const uid = getStoredSessionUserId();
+  if (!uid) return;
+  try {
+    localStorage.setItem(ADMIN_VERIFICADO_KEY, uid);
+  } catch (err) {
+    /* almacenamiento bloqueado: solo se pierde el acceso sin conexión */
+  }
+}
+
+// Solo se permite entrar sin conexión si ESTE teléfono ya verificó antes
+// que la sesión guardada es de un administrador. Sin internet no se puede
+// leer ni escribir nada del servidor, así que solo expone la copia local.
+function puedeEntrarSinConexion() {
+  try {
+    const uid = getStoredSessionUserId();
+    return Boolean(uid) && localStorage.getItem(ADMIN_VERIFICADO_KEY) === uid;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function borrarDatosLocales() {
+  try {
+    localStorage.removeItem(ADMIN_VERIFICADO_KEY);
+  } catch (err) {
+    /* noop */
+  }
+  movimientosServidor = [];
+  asociadosServidor = [];
+  await window.BMStore?.cacheClear();
+  await window.BMStore?.outboxClear().catch(() => {});
+  pendientesCount = 0;
+  updateEstadoConexion();
+}
+
+async function contarPendientes() {
+  const items = (await window.BMStore?.outboxList()) || [];
+  pendientesCount = items.length;
+  return pendientesCount;
+}
+
+function requiereInternet(accion) {
+  if (navigator.onLine) return true;
+  alert(
+    `Necesitas internet para ${accion}.\n\n` +
+      'Sin internet sí puedes registrar pedidos, pagos y asociados nuevos: se guardan en el teléfono y se envían solos al volver la señal.'
+  );
+  return false;
+}
+
+function formatHaceCuanto(timestamp) {
+  if (!timestamp) return '';
+  const min = Math.round((Date.now() - timestamp) / 60000);
+  if (min < 1) return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  return `el ${new Date(timestamp).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}`;
+}
+
+function updateEstadoConexion() {
+  const pill = document.getElementById('estado-conexion');
+  const icono = document.getElementById('estado-conexion-icono');
+  const texto = document.getElementById('estado-conexion-texto');
+  if (!pill || !icono || !texto) return;
+
+  const offline = !navigator.onLine;
+  const visible = offline || pendientesCount > 0 || mostrandoCopiaLocal || sincronizando;
+  pill.classList.toggle('hidden', !visible);
+  pill.classList.toggle('flex', visible);
+  if (!visible) return;
+
+  const porEnviar = pendientesCount > 0 ? `${pendientesCount} por enviar` : '';
+  icono.classList.toggle('animate-spin', sincronizando);
+  if (sincronizando) {
+    icono.textContent = 'sync';
+    texto.textContent = 'Enviando...';
+    pill.style.background = '#E0F7FB';
+    pill.style.color = '#00667A';
+  } else if (offline || mostrandoCopiaLocal) {
+    icono.textContent = 'cloud_off';
+    texto.textContent = porEnviar || 'Sin internet';
+    pill.style.background = '#FEF3C7';
+    pill.style.color = '#92400E';
+  } else {
+    icono.textContent = 'cloud_upload';
+    texto.textContent = porEnviar;
+    pill.style.background = '#FFFFFF';
+    pill.style.color = '#00667A';
+  }
+  pill.title = mostrandoCopiaLocal
+    ? `Mostrando datos guardados ${formatHaceCuanto(copiaLocalGuardadaEn)}`
+    : '';
+}
+
+function onEstadoConexionClick() {
+  if (!navigator.onLine) {
+    const guardado = copiaLocalGuardadaEn ? `\nDatos guardados ${formatHaceCuanto(copiaLocalGuardadaEn)}.` : '';
+    alert(
+      'Estás sin internet.' +
+        guardado +
+        (pendientesCount > 0 ? `\n${pendientesCount} registro(s) esperando para enviarse.` : '') +
+        '\n\nPuedes seguir registrando pedidos y pagos. Se enviarán solos cuando vuelva la señal.'
+    );
+    return;
+  }
+  sincronizarPendientes({ forzarRecarga: true });
+}
+
+function blobToFile(blob, name) {
+  if (blob instanceof File) return blob;
+  return new File([blob], name || `foto-${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' });
+}
+
+// Busca si un registro ya llegó al servidor (p. ej. se insertó pero la
+// respuesta se perdió al cortarse la señal) para no duplicarlo al reintentar.
+async function registroYaExiste(item) {
+  if (!item.insertIntentadoEn) return false;
+  const desde = new Date(item.insertIntentadoEn - 2 * 60 * 1000).toISOString();
+  let query = getSupabase().from(item.table).select('id').gte('created_at', desde).limit(1);
+  if (item.table === 'movimientos') {
+    query = query.eq('cliente', item.payload.cliente).eq('tipo', item.payload.tipo).eq('monto', item.payload.monto);
+  } else {
+    query = query.eq('nombre_nuevo', item.payload.nombre_nuevo);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).length > 0;
+}
+
+// Sube las fotos que falten y crea el registro. Si el item viene de la
+// bandeja de salida, guarda el progreso para no volver a subir fotos.
+async function enviarRegistro(item, { persistir = false } = {}) {
+  if (await registroYaExiste(item)) return;
+
+  item.uploadedUrls = item.uploadedUrls || [];
+  while (item.photos && item.photos.length > 0) {
+    const foto = item.photos[0];
+    const url = await uploadToStorage(blobToFile(foto.blob, foto.name), item.bucket);
+    item.uploadedUrls.push(url);
+    item.photos.shift();
+    if (persistir) await window.BMStore.outboxPut(item);
+  }
+
+  const payload = { ...item.payload };
+  if (item.photoField === 'url_ine') {
+    payload.url_ine = item.uploadedUrls[0] || payload.url_ine || null;
+  } else {
+    payload.array_urls_fotos = [...(payload.array_urls_fotos || []), ...item.uploadedUrls];
+  }
+
+  item.insertIntentadoEn = Date.now();
+  if (persistir) await window.BMStore.outboxPut(item);
+  const { error } = await getSupabase().from(item.table).insert(payload);
+  if (error) throw error;
+}
+
+// Punto único para crear registros. Intenta enviarlo ya; si no hay señal,
+// lo guarda en el teléfono. Devuelve { enCola: boolean }.
+async function guardarRegistro({ table, payload, files = [], bucket = STORAGE_BUCKET, photoField = 'array_urls_fotos' }) {
+  const photos = [];
+  for (const file of files) {
+    const compressed = await compressImage(file);
+    photos.push({ blob: compressed, name: compressed.name || file.name || 'foto.jpg' });
+  }
+  const item = { table, payload, photos, bucket, photoField, uploadedUrls: [] };
+
+  if (navigator.onLine) {
+    try {
+      await enviarRegistro(item);
+      return { enCola: false };
+    } catch (err) {
+      if (!isNetworkError(err)) throw err;
+      console.warn('Sin red al guardar; se guarda en el teléfono:', err);
+    }
+  }
+
+  if (!window.BMStore) throw new Error('No se pudo guardar sin internet en este navegador.');
+  await window.BMStore.outboxAdd(item);
+  await contarPendientes();
+  await rebuildDatosConPendientes();
+  updateEstadoConexion();
+  return { enCola: true };
+}
+
+function toastGuardadoEnTelefono() {
+  showSuccessToast('Sin internet: guardado en el teléfono. Se enviará solo.', { duration: 4500, icon: 'cloud_off' });
+}
+
+async function sincronizarPendientes({ forzarRecarga = false } = {}) {
+  if (sincronizando || !navigator.onLine || !isAdminAuthenticated || !window.BMStore) return;
+  const items = await window.BMStore.outboxList();
+  pendientesCount = items.length;
+  if (items.length === 0) {
+    updateEstadoConexion();
+    if (forzarRecarga || mostrandoCopiaLocal) await Promise.all([fetchMovimientos(), fetchAsociados()]);
+    return;
+  }
+
+  // Renueva el token si venció mientras no había señal.
+  const { data: sessionData, error: sessionError } = await getSupabase().auth.getSession();
+  if (sessionError || !sessionData?.session) {
+    if (!isNetworkError(sessionError)) {
+      showLoginScreen(`Inicia sesión para enviar ${items.length} registro(s) guardados en el teléfono.`);
+    }
+    return;
+  }
+
+  sincronizando = true;
+  updateEstadoConexion();
+  let enviados = 0;
+  const errores = [];
+  try {
+    for (const item of items) {
+      try {
+        await enviarRegistro(item, { persistir: true });
+        await window.BMStore.outboxDelete(item.localId);
+        enviados++;
+      } catch (err) {
+        if (isNetworkError(err)) break; // se cortó otra vez: reintentar después
+        console.error('No se pudo enviar registro pendiente:', err, item);
+        item.ultimoError = formatFriendlyError(err, 'Error al enviar');
+        item.intentos = (item.intentos || 0) + 1;
+        await window.BMStore.outboxPut(item);
+        errores.push(item);
+      }
+    }
+  } finally {
+    sincronizando = false;
+    await contarPendientes();
+    updateEstadoConexion();
+  }
+
+  if (enviados > 0 || forzarRecarga || mostrandoCopiaLocal) {
+    await Promise.all([fetchMovimientos(), fetchAsociados()]);
+  }
+  if (enviados > 0) showSuccessToast(`${enviados} registro(s) enviados`);
+  if (errores.length > 0) {
+    alert(
+      `${errores.length} registro(s) no se pudieron enviar y siguen guardados en el teléfono.\n\n` +
+        `Motivo: ${errores[0].ultimoError}\n\nSe volverá a intentar automáticamente.`
+    );
+  }
+}
+
+// Registros en cola convertidos al formato de la tabla, para que cuenten en
+// saldos y listas mientras se envían. Usan id negativo para distinguirlos.
+function pendientesComoFilas(items, table) {
+  return items
+    .filter((it) => it.table === table)
+    .map((it) => ({
+      ...it.payload,
+      id: -it.localId,
+      created_at: new Date(it.createdAt || Date.now()).toISOString(),
+      array_urls_fotos: table === 'movimientos' ? [...(it.payload.array_urls_fotos || []), ...(it.uploadedUrls || [])] : undefined,
+      _pendiente: true,
+      _fotosPendientes: (it.photos || []).length,
+      _error: it.ultimoError || null,
+    }))
+    .reverse();
+}
+
+async function rebuildDatosConPendientes() {
+  const items = (await window.BMStore?.outboxList()) || [];
+  pendientesCount = items.length;
+  movimientosData = [...pendientesComoFilas(items, 'movimientos'), ...movimientosServidor];
+  asociadosData = [...pendientesComoFilas(items, 'asociados'), ...asociadosServidor];
+  invalidateClientesCache();
+  refreshClienteDatalist();
+  renderClientes();
+  renderPedidosSemanales();
+  renderHistorialSemanas();
+  updateCharts();
+  renderGamificacion();
+  renderAsociados();
+}
+
+async function descartarPendiente(idNegativo) {
+  const localId = -idNegativo;
+  const ok = confirm('Este registro todavía no se envía al servidor.\n\n¿Quieres descartarlo? No se podrá recuperar.');
+  if (!ok) return;
+  await window.BMStore.outboxDelete(localId);
+  await rebuildDatosConPendientes();
+  updateEstadoConexion();
+  showSuccessToast('Registro descartado');
+}
+
+function avisoPendiente() {
+  alert('Este registro está guardado en el teléfono y todavía no se envía.\nPodrás editarlo cuando se envíe (al volver el internet).');
+}
+
+function initModoSinConexion() {
+  document.getElementById('estado-conexion')?.addEventListener('click', onEstadoConexionClick);
+  window.addEventListener('online', () => {
+    updateEstadoConexion();
+    showSuccessToast('Volvió el internet', { icon: 'cloud_done' });
+    sincronizarPendientes({ forzarRecarga: true });
+  });
+  window.addEventListener('offline', () => {
+    updateEstadoConexion();
+    showSuccessToast('Sin internet. Puedes seguir registrando; se enviará después.', { duration: 4500, icon: 'wifi_off' });
+  });
+  // Reintento periódico por si el evento "online" no se dispara (pasa en algunos Android).
+  setInterval(() => {
+    if (pendientesCount > 0 && navigator.onLine) sincronizarPendientes();
+  }, 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && navigator.onLine && (pendientesCount > 0 || mostrandoCopiaLocal)) {
+      sincronizarPendientes();
+    }
+  });
+  contarPendientes().then(updateEstadoConexion);
+}
+
+// ============================================
+// Tamaño de letra
+// ============================================
+function initTamanoLetra() {
+  const prefs = window.BM_TEXT_SIZE;
+  if (!prefs) return;
+  const etiquetas = { normal: 'Normal', grande: 'Grande', 'muy-grande': 'Enorme' };
+
+  const pintar = () => {
+    const actual = prefs.get();
+    document.querySelectorAll('.opcion-tamano').forEach((btn) => {
+      const activo = btn.dataset.size === actual;
+      btn.setAttribute('aria-checked', String(activo));
+      btn.style.borderColor = activo ? '#00B2E3' : '#E5E7EB';
+      btn.style.background = activo ? '#E0F7FB' : '#FFFFFF';
+      btn.style.color = activo ? '#00667A' : '#6B7280';
+    });
+  };
+
+  document.getElementById('btn-tamano-letra')?.addEventListener('click', () => {
+    const nuevo = prefs.next();
+    showSuccessToast(`Letra: ${etiquetas[nuevo]}`, { duration: 1500 });
+  });
+  document.getElementById('selector-tamano-letra')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('.opcion-tamano');
+    if (btn) prefs.set(btn.dataset.size);
+  });
+  window.addEventListener('bm:text-size', () => {
+    pintar();
+    // Chart.js dibuja en canvas (px): se recalculan fuentes y tamaño.
+    try {
+      updateCharts();
+    } catch (err) {
+      console.warn('No se pudieron redibujar gráficas:', err);
+    }
+  });
+  pintar();
 }
 
 // ============================================
@@ -302,6 +722,8 @@ async function compressImage(file) {
     maxSizeMB: 0.5,
     maxWidthOrHeight: 1280,
     useWebWorker: true,
+    // Por defecto el worker descarga la librería de jsdelivr: sin internet fallaría.
+    libURL: new URL('vendor/browser-image-compression-2.0.1.js', document.baseURI).href,
   });
 }
 
@@ -472,7 +894,7 @@ function showSuccessToast(message = 'Guardado', options = {}) {
 
   toast.innerHTML = `
     <div class="flex items-center gap-2">
-      <span class="material-symbols-outlined toast-icon">check_circle</span>
+      <span class="material-symbols-outlined toast-icon">${escapeHtml(options.icon || 'check_circle')}</span>
       <span class="toast-text">${escapeHtml(message)}</span>
     </div>
   `;
@@ -494,7 +916,7 @@ function showSuccessToast(message = 'Guardado', options = {}) {
   container.appendChild(toast);
   requestAnimationFrame(() => toast.classList.add('show'));
 
-  const duration = options.actionLabel ? 5500 : 2200;
+  const duration = options.duration || (options.actionLabel ? 5500 : 2200);
   setTimeout(() => {
     if (!toast.isConnected) return;
     toast.classList.add('hide');
@@ -537,18 +959,18 @@ function photoActionsHtml(url, filename, compact = false) {
   const safeUrl = escapeHtml(url);
   const safeName = escapeHtml(filename);
   const btnClass = compact
-    ? 'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container-high transition-colors'
-    : 'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold hover:opacity-90 transition-opacity';
+    ? 'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[0.75rem] font-semibold text-on-surface-variant hover:bg-surface-container-high transition-colors'
+    : 'inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[0.75rem] font-semibold hover:opacity-90 transition-opacity';
   const btnStyle = compact ? '' : 'background: #E0F7FB; color: #00667A;';
 
   return `
     <div class="flex flex-wrap gap-1 ${compact ? '' : 'mt-1'}">
       <a href="${safeUrl}" target="_blank" rel="noopener" class="${btnClass}" style="${btnStyle}">
-        <span class="material-symbols-outlined text-[16px]">visibility</span>
+        <span class="material-symbols-outlined text-[1rem]">visibility</span>
         Ver
       </a>
       <button type="button" class="${btnClass} btn-download" data-url="${safeUrl}" data-filename="${safeName}" style="${btnStyle}">
-        <span class="material-symbols-outlined text-[16px]">download</span>
+        <span class="material-symbols-outlined text-[1rem]">download</span>
         Descargar
       </button>
     </div>
@@ -581,7 +1003,7 @@ function renderFilePreview(previewId, files) {
       return `
         <div class="relative">
           <img src="${url}" alt="Vista previa ${index + 1}" class="preview-thumb">
-          <span class="absolute bottom-1 left-1 right-1 text-[10px] text-white bg-black/60 rounded px-1 truncate">${escapeHtml(file.name)}</span>
+          <span class="absolute bottom-1 left-1 right-1 text-[0.75rem] text-white bg-black/60 rounded px-1 truncate">${escapeHtml(file.name)}</span>
         </div>
       `;
     })
@@ -685,8 +1107,8 @@ function renderEmptyState(container, message) {
   if (!container) return;
   container.innerHTML = `
     <div class="flex flex-col items-center justify-center py-12 text-center">
-      <span class="material-symbols-outlined text-[48px] mb-3" style="color: #66D0F0;">inbox</span>
-      <p class="text-sm text-outline max-w-[200px]">${message}</p>
+      <span class="material-symbols-outlined text-[3rem] mb-3" style="color: #66D0F0;">inbox</span>
+      <p class="text-sm text-outline max-w-[12.5rem]">${message}</p>
     </div>
   `;
 }
@@ -697,6 +1119,13 @@ function renderEmptyState(container, message) {
 let chartHistoricoInstance = null;
 let chartBarrasInstance = null;
 let chartDonaInstance = null;
+
+// Tamaño de letra para Chart.js (dibuja en canvas en px): mínimo legible
+// y proporcional al tamaño de letra elegido por el usuario.
+function chartFont(basePx) {
+  const scale = window.BM_TEXT_SIZE?.scale?.() || 1;
+  return Math.round(Math.max(basePx, 11) * scale);
+}
 
 function destroyCharts() {
   if (chartHistoricoInstance) {
@@ -715,6 +1144,9 @@ function destroyCharts() {
 
 function updateCharts() {
   if (typeof Chart === 'undefined') return;
+
+  Chart.defaults.font.family = "'Hanken Grotesk', system-ui, sans-serif";
+  Chart.defaults.font.size = chartFont(12);
 
   const canvasHistorico = document.getElementById('chart-historico');
   const canvasBarras = document.getElementById('chart-barras-semanal');
@@ -810,7 +1242,7 @@ function updateCharts() {
         plugins: {
           legend: {
             position: 'top',
-            labels: { boxWidth: 12, font: { size: 11 } }
+            labels: { boxWidth: 12, font: { size: chartFont(11) } }
           },
           tooltip: {
             callbacks: {
@@ -819,10 +1251,10 @@ function updateCharts() {
           }
         },
         scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          x: { grid: { display: false }, ticks: { font: { size: chartFont(10) } } },
           y: {
             ticks: {
-              font: { size: 10 },
+              font: { size: chartFont(10) },
               callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
             },
             grid: { color: 'rgba(0,0,0,0.04)' }
@@ -866,7 +1298,7 @@ function updateCharts() {
         plugins: {
           legend: {
             position: 'top',
-            labels: { boxWidth: 10, font: { size: 10 } }
+            labels: { boxWidth: 10, font: { size: chartFont(10) } }
           },
           tooltip: {
             callbacks: {
@@ -875,10 +1307,10 @@ function updateCharts() {
           }
         },
         scales: {
-          x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+          x: { grid: { display: false }, ticks: { font: { size: chartFont(9) } } },
           y: {
             ticks: {
-              font: { size: 9 },
+              font: { size: chartFont(9) },
               callback: (val) => `$${Number(val).toLocaleString('es-MX')}`
             },
             grid: { color: 'rgba(0,0,0,0.04)' }
@@ -934,7 +1366,7 @@ function updateCharts() {
         plugins: {
           legend: {
             position: 'bottom',
-            labels: { boxWidth: 10, font: { size: 10 } }
+            labels: { boxWidth: 10, font: { size: chartFont(10) } }
           },
           tooltip: {
             callbacks: {
@@ -968,19 +1400,19 @@ function renderDashboard() {
 
   container.innerHTML = `
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 4px solid #DC2626;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Deudores</p>
+      <p class="text-[0.75rem] font-bold uppercase tracking-wide truncate" style="color: #991B1B;">Deudores</p>
       <p class="text-xl font-bold" style="color: #991B1B;">${numDeudores}</p>
-      <p class="text-[11px] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
+      <p class="text-[0.75rem] font-semibold" style="color: #DC2626;">${formatMoney(totalDeudores)}</p>
     </div>
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #D1FAE5, #A7F3D0); border-left: 4px solid #00A859;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #004d26;">Al día</p>
+      <p class="text-[0.75rem] font-bold uppercase tracking-wide truncate" style="color: #004d26;">Al día</p>
       <p class="text-xl font-bold" style="color: #004d26;">${numAlDia}</p>
-      <p class="text-[11px] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
+      <p class="text-[0.75rem] font-semibold" style="color: #00A859;">${formatMoney(totalAlDia)}</p>
     </div>
     <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #E0F7FB, #B3E5FC); border-left: 4px solid #00B2E3;">
-      <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #00667A;">Balance</p>
+      <p class="text-[0.75rem] font-bold uppercase tracking-wide truncate" style="color: #00667A;">Balance</p>
       <p class="text-xl font-bold" style="color: #00667A;">${groups.length}</p>
-      <p class="text-[11px] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
+      <p class="text-[0.75rem] font-semibold" style="color: ${balanceGeneral >= 0 ? '#00A859' : '#DC2626'};">${formatMoney(Math.abs(balanceGeneral))}</p>
     </div>
   `;
 }
@@ -1503,12 +1935,12 @@ function renderRankingMorosos() {
       return `
         <div class="py-2.5 flex items-center justify-between gap-3">
           <div class="flex items-center gap-2.5 min-w-0">
-            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0" style="background: ${prioridadBg}; color: ${prioridadColor};">
+            <span class="w-5 h-5 rounded-full flex items-center justify-center text-[0.75rem] font-black shrink-0" style="background: ${prioridadBg}; color: ${prioridadColor};">
               ${idx + 1}
             </span>
             <div class="min-w-0">
-              <p class="text-[13px] font-bold text-on-surface truncate">${clienteEscaped}</p>
-              <div class="flex items-center gap-2 text-[11px] text-outline truncate">
+              <p class="text-[0.8125rem] font-bold text-on-surface break-words leading-tight">${clienteEscaped}</p>
+              <div class="flex items-center gap-2 text-[0.75rem] text-outline truncate">
                 <span>${item.diasDeuda} días en mora</span>
                 <span>\u00B7</span>
                 <span class="font-bold text-[#DC2626]">${formatMoney(item.debe)}</span>
@@ -1516,11 +1948,11 @@ function renderRankingMorosos() {
             </div>
           </div>
           <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded" style="background: ${prioridadBg}; color: ${prioridadColor};" title="Índice de prioridad 0-100">
+            <span class="text-[0.75rem] font-bold px-1.5 py-0.5 rounded" style="background: ${prioridadBg}; color: ${prioridadColor};" title="Índice de prioridad 0-100">
               P${item.prioridad}
             </span>
             <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90" data-cliente="${clienteEscaped}" title="Compartir cobro por WhatsApp">
-              <span class="material-symbols-outlined text-[16px]" style="color: #00A859;">share</span>
+              <span class="material-symbols-outlined text-[1rem]" style="color: #00A859;">share</span>
             </button>
           </div>
         </div>
@@ -1792,13 +2224,13 @@ function openRenameClienteGrupo(clienteNombre) {
     <div class="space-y-4">
       <div>
         <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nombre actual</label>
-        <input class="form-input w-full rounded-xl bg-surface-container-low px-4 py-3 text-[15px] text-on-surface" value="${escapeHtml(canonical)}" readonly type="text">
+        <input class="form-input w-full rounded-xl bg-surface-container-low px-4 py-3 text-[0.9375rem] text-on-surface" value="${escapeHtml(canonical)}" readonly type="text">
       </div>
       <div>
         <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nuevo nombre</label>
-        <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="rename-nuevo-nombre" placeholder="Ej. Juan Perez" required type="text" autocomplete="off">
+        <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="rename-nuevo-nombre" placeholder="Ej. Juan Perez" required type="text" autocomplete="off">
       </div>
-      <div id="rename-aviso" class="px-3 py-2 rounded-xl text-[12px] font-semibold" style="background: #FEF3C7; color: #92400E;">
+      <div id="rename-aviso" class="px-3 py-2 rounded-xl text-[0.75rem] font-semibold" style="background: #FEF3C7; color: #92400E;">
         Se actualizaran <strong>${affected.length}</strong> movimientos.
       </div>
     </div>
@@ -2003,7 +2435,7 @@ function openNuevoMovimientoCliente(clienteNombre, tipoInicial = 'pedido') {
   const horaVal = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const saldo = getClienteSaldo(clienteNombre);
   const saldoHtml = saldo
-    ? `<p class="text-[12px] mt-xs" style="color: ${saldo.debe > 0 ? '#DC2626' : '#00A859'};">${saldo.debe > 0 ? 'Debe' : saldo.debe < 0 ? 'Saldo a favor' : 'Al corriente'}: ${formatMoney(Math.abs(saldo.debe))}</p>`
+    ? `<p class="text-[0.75rem] mt-xs" style="color: ${saldo.debe > 0 ? '#DC2626' : '#00A859'};">${saldo.debe > 0 ? 'Debe' : saldo.debe < 0 ? 'Saldo a favor' : 'Al corriente'}: ${formatMoney(Math.abs(saldo.debe))}</p>`
     : '';
 
   const bodyHtml = `
@@ -2015,10 +2447,10 @@ function openNuevoMovimientoCliente(clienteNombre, tipoInicial = 'pedido') {
       </div>
       <div class="flex gap-sm">
         <button type="button" class="nuevo-mov-tipo flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" data-tipo="pedido">
-          <span class="material-symbols-outlined text-[20px]">shopping_cart</span> Pedido
+          <span class="material-symbols-outlined text-[1.25rem]">shopping_cart</span> Pedido
         </button>
         <button type="button" class="nuevo-mov-tipo flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" data-tipo="pago">
-          <span class="material-symbols-outlined text-[20px]">payments</span> Pago
+          <span class="material-symbols-outlined text-[1.25rem]">payments</span> Pago
         </button>
       </div>
       <div>
@@ -2042,7 +2474,7 @@ function openNuevoMovimientoCliente(clienteNombre, tipoInicial = 'pedido') {
       <div>
         <input accept="image/*" class="hidden" id="nuevo-mov-fotos" multiple type="file">
         <div class="w-full h-24 border-2 border-dashed border-outline-variant rounded-xl bg-surface-container-low flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container transition-colors" data-default-label="Agregar fotos" id="dropzone-nuevo-mov">
-          <span class="material-symbols-outlined text-[28px]" style="color: #66D0F0;">add_a_photo</span>
+          <span class="material-symbols-outlined text-[1.75rem]" style="color: #66D0F0;">add_a_photo</span>
           <span class="font-label-md text-label-md text-outline">Agregar fotos</span>
         </div>
         <div class="preview-grid hidden" id="preview-modal"></div>
@@ -2086,21 +2518,15 @@ async function saveNuevoMovimientoCliente(cliente, tipo) {
     return;
   }
 
-  const arrayUrlsFotos = [];
   const fotosInput = document.getElementById('nuevo-mov-fotos');
-  if (fotosInput?.files?.length) {
-    for (const file of fotosInput.files) {
-      const compressed = await compressImage(file);
-      arrayUrlsFotos.push(await uploadToStorage(compressed));
-    }
-  }
+  const files = fotosInput?.files?.length ? Array.from(fotosInput.files) : [];
 
   const payload = {
     cliente,
     tipo,
     monto,
     descripcion: descripcion || null,
-    array_urls_fotos: arrayUrlsFotos,
+    array_urls_fotos: [],
     fecha: getTodayLocalDateString(),
   };
   if (tipo === 'pago') {
@@ -2108,10 +2534,13 @@ async function saveNuevoMovimientoCliente(cliente, tipo) {
     payload.hora = document.getElementById('nuevo-mov-hora')?.value || null;
   }
 
-  const { error } = await getSupabase().from('movimientos').insert(payload);
-  if (error) throw error;
+  const { enCola } = await guardarRegistro({ table: 'movimientos', payload, files });
 
   closeModal();
+  if (enCola) {
+    toastGuardadoEnTelefono();
+    return;
+  }
   await fetchMovimientos();
   showSuccessToast(tipo === 'pago' ? 'Pago guardado' : 'Pedido guardado');
 }
@@ -2307,7 +2736,15 @@ function setupEditDelegation(containerId, type) {
   container.addEventListener('click', async (event) => {
     const renameBtn = event.target.closest('.btn-rename-cliente');
     if (renameBtn) {
+      if (!requiereInternet('cambiar el nombre de un cliente')) return;
       openRenameClienteGrupo(renameBtn.dataset.cliente);
+      return;
+    }
+
+    const descartarBtn = event.target.closest('.btn-descartar-pendiente');
+    if (descartarBtn) {
+      const id = Number(descartarBtn.dataset.id);
+      if (id < 0) await descartarPendiente(id);
       return;
     }
 
@@ -2321,7 +2758,7 @@ function setupEditDelegation(containerId, type) {
     if (shareClienteBtn) {
       const icon = shareClienteBtn.innerHTML;
       shareClienteBtn.disabled = true;
-      shareClienteBtn.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>';
+      shareClienteBtn.innerHTML = '<span class="material-symbols-outlined text-[0.875rem] animate-spin">progress_activity</span>';
       try {
         await shareClienteWhatsApp(shareClienteBtn.dataset.cliente);
       } finally {
@@ -2335,6 +2772,8 @@ function setupEditDelegation(containerId, type) {
     if (btnMov) {
       const id = Number(btnMov.dataset.id);
       if (Number.isNaN(id)) return;
+      if (id < 0) return avisoPendiente();
+      if (!requiereInternet('editar')) return;
       openEditMovimiento(id);
       return;
     }
@@ -2344,7 +2783,9 @@ function setupEditDelegation(containerId, type) {
       try {
         const id = Number(btnDelMov.dataset.id);
         if (Number.isNaN(id)) return;
-        await deleteMovimiento(Number(btnDelMov.dataset.id));
+        if (id < 0) return await descartarPendiente(id);
+        if (!requiereInternet('eliminar')) return;
+        await deleteMovimiento(id);
       } catch (err) {
         console.error(err);
         alert(formatFriendlyError(err, 'Error al eliminar.'));
@@ -2356,6 +2797,8 @@ function setupEditDelegation(containerId, type) {
     if (btnAsoc) {
       const id = Number(btnAsoc.dataset.id);
       if (Number.isNaN(id)) return;
+      if (id < 0) return avisoPendiente();
+      if (!requiereInternet('editar')) return;
       openEditAsociado(id);
       return;
     }
@@ -2365,6 +2808,8 @@ function setupEditDelegation(containerId, type) {
       try {
         const id = Number(btnDelAsoc.dataset.id);
         if (Number.isNaN(id)) return;
+        if (id < 0) return await descartarPendiente(id);
+        if (!requiereInternet('eliminar')) return;
         await deleteAsociado(id);
       } catch (err) {
         console.error(err);
@@ -2555,6 +3000,19 @@ function groupByCliente(movimientos) {
   return result;
 }
 
+function pendienteBadgeHtml(row) {
+  const fotos = row._fotosPendientes ? ` · ${row._fotosPendientes} foto(s)` : '';
+  const titulo = row._error ? `No se pudo enviar: ${row._error}` : 'Guardado en el teléfono, se enviará al volver el internet';
+  return `
+    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap" style="background:${row._error ? '#FEE2E2' : '#FEF3C7'};color:${row._error ? '#991B1B' : '#92400E'};" title="${escapeHtml(titulo)}">
+      <span class="material-symbols-outlined text-[0.875rem]">${row._error ? 'error' : 'schedule'}</span>
+      Por enviar${escapeHtml(fotos)}
+    </span>
+    <button type="button" class="btn-eliminar btn-descartar-pendiente" data-id="${row.id}" title="Descartar registro no enviado" aria-label="Descartar registro no enviado">
+      <span class="material-symbols-outlined text-[0.875rem]">delete</span>
+    </button>`;
+}
+
 function renderMovimientoItem(mov) {
   const clienteSlug = escapeHtml(mov.cliente).replace(/\s+/g, '-');
   const esPedido = mov.tipo === 'pedido';
@@ -2589,35 +3047,36 @@ function renderMovimientoItem(mov) {
 
   return `
     <div class="relative pl-3 py-2 first:py-0 mt-2 first:mt-0" style="border-left: 3px solid ${stripeColor};">
-      <div class="flex items-start justify-between gap-2">
-        <div class="min-w-0">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="min-w-[9rem] flex-1">
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+            <span class="px-2 py-0.5 rounded-full text-[0.75rem] font-bold uppercase tracking-wider"
                   style="background: ${badgeBg}; color: ${badgeText};">${tipoLabel}</span>
-            ${esOnline ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #E0F7FB; color: #00667A;"><span class="material-symbols-outlined text-[12px]">language</span> Online</span>' : ''}
-            ${esPagado ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #D1FAE5; color: #047857;"><span class="material-symbols-outlined text-[12px]">check_circle</span> Pagado</span>' : ''}
-            <span class="font-semibold text-on-surface text-[15px]">${formatMoney(mov.monto)}</span>
+            ${esOnline ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.75rem] sm:text-[0.75rem] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #E0F7FB; color: #00667A;"><span class="material-symbols-outlined text-[0.75rem]">language</span> Online</span>' : ''}
+            ${esPagado ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[0.75rem] sm:text-[0.75rem] font-bold uppercase tracking-wider flex-shrink-0 whitespace-nowrap" style="background: #D1FAE5; color: #047857;"><span class="material-symbols-outlined text-[0.75rem]">check_circle</span> Pagado</span>' : ''}
+            <span class="font-semibold text-on-surface text-[0.9375rem]">${formatMoney(mov.monto)}</span>
           </div>
           ${descripcion ? `<p class="text-xs text-outline mt-1">${descripcion}</p>` : ''}
           ${esOnline && mov.usuario_id && perfilesAdminData[mov.usuario_id] ? `
             <div class="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-              ${perfilesAdminData[mov.usuario_id].telefono ? `<span class="text-[11px] font-semibold text-[#00667A] flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">call</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].telefono)}</span>` : ''}
-              ${perfilesAdminData[mov.usuario_id].nombre ? `<span class="text-[11px] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].nombre + ' ' + (perfilesAdminData[mov.usuario_id].apellidos || ''))}</span>` : ''}
-              ${perfilesAdminData[mov.usuario_id].ciudad ? `<span class="text-[11px] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">location_on</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].ciudad)}</span>` : ''}
+              ${perfilesAdminData[mov.usuario_id].telefono ? `<span class="text-[0.75rem] font-semibold text-[#00667A] flex items-center gap-1"><span class="material-symbols-outlined text-[0.75rem]">call</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].telefono)}</span>` : ''}
+              ${perfilesAdminData[mov.usuario_id].nombre ? `<span class="text-[0.75rem] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[0.75rem]">person</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].nombre + ' ' + (perfilesAdminData[mov.usuario_id].apellidos || ''))}</span>` : ''}
+              ${perfilesAdminData[mov.usuario_id].ciudad ? `<span class="text-[0.75rem] text-outline flex items-center gap-1"><span class="material-symbols-outlined text-[0.75rem]">location_on</span> ${escapeHtml(perfilesAdminData[mov.usuario_id].ciudad)}</span>` : ''}
             </div>
           ` : ''}
-          <p class="text-[11px] text-outline mt-1">
+          <p class="text-[0.75rem] text-outline mt-1">
             ${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}
           </p>
         </div>
         <div class="flex items-center gap-1 shrink-0">
+          ${mov._pendiente ? pendienteBadgeHtml(mov) : `
           <button type="button" class="btn-editar btn-editar-movimiento" data-id="${mov.id}">
-            <span class="material-symbols-outlined text-[14px]" data-icon="edit">edit</span>
+            <span class="material-symbols-outlined text-[0.875rem]" data-icon="edit">edit</span>
             Editar
           </button>
           <button type="button" class="btn-eliminar btn-eliminar-movimiento" data-id="${mov.id}" title="Eliminar">
-            <span class="material-symbols-outlined text-[14px]">delete</span>
-          </button>
+            <span class="material-symbols-outlined text-[0.875rem]">delete</span>
+          </button>`}
         </div>
       </div>
       ${fotosHtml}
@@ -3193,37 +3652,37 @@ function renderClientes() {
 
       return `
         <div class="rounded-2xl p-4 flex gap-3 items-start transition-all" style="background: ${cardBg}; border-left: 4px solid ${borderColor}; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
-          <div class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+          <div class="avatar-iniciales w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                style="background: ${borderColor}18; color: ${borderColor};">
             ${getInitials(group.cliente)}
           </div>
           <div class="flex-1 min-w-0">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
-                <h4 class="font-semibold text-on-surface truncate text-[15px]">${cliente}</h4>
+                <h4 class="font-semibold text-on-surface break-words leading-tight text-[0.9375rem]">${cliente}</h4>
                 <button type="button" class="btn-rename-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Renombrar cliente">
-                  <span class="material-symbols-outlined text-[14px]" style="color: #92400E;">edit_square</span>
+                  <span class="material-symbols-outlined text-[0.875rem]" style="color: #92400E;">edit_square</span>
                 </button>
                 <button type="button" class="btn-compartir-cliente p-1.5 rounded-full hover:bg-surface-container-high transition-colors active:scale-90 ml-1 shrink-0" data-cliente="${escapeHtml(group.cliente)}" title="Compartir por WhatsApp">
-                  <span class="material-symbols-outlined text-[14px]" style="color: #00A859;">share</span>
+                  <span class="material-symbols-outlined text-[0.875rem]" style="color: #00A859;">share</span>
                 </button>
-                <div class="flex gap-3 mt-0.5 text-[11px] text-outline flex-wrap">
+                <div class="flex gap-3 mt-0.5 text-[0.75rem] text-outline flex-wrap">
                   <span>Cobrable: ${formatMoney(group.totalCobrable)}</span>
                   <span>Pagado: ${formatMoney(group.totalPagado)}</span>
                   ${group.totalVentas !== group.totalCobrable ? `<span>Total pedidos: ${formatMoney(group.totalVentas)}</span>` : ''}
                 </div>
               </div>
               <div class="text-right shrink-0">
-                <p class="text-[11px]" style="color: ${debeColor};">${debeLabel}</p>
+                <p class="text-[0.75rem]" style="color: ${debeColor};">${debeLabel}</p>
                 <p class="text-base ${debeClass}" style="color: ${debeColor};">${formatMoney(Math.abs(group.debe))}</p>
               </div>
             </div>
             <div class="flex gap-2 mt-2">
-              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #E0F7FB; color: #00667A;" data-cliente="${cliente}" data-tipo="pedido">
-                <span class="material-symbols-outlined text-[18px]">add_shopping_cart</span> Pedido
+              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[0.8125rem] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #E0F7FB; color: #00667A;" data-cliente="${cliente}" data-tipo="pedido">
+                <span class="material-symbols-outlined text-[1.125rem]">add_shopping_cart</span> Pedido
               </button>
-              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[13px] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #DCFCE7; color: #166534;" data-cliente="${cliente}" data-tipo="pago">
-                <span class="material-symbols-outlined text-[18px]">payments</span> Pago
+              <button type="button" class="btn-nuevo-mov-cliente flex-1 h-9 rounded-full text-[0.8125rem] font-semibold flex items-center justify-center gap-1 active:scale-95 transition-all" style="background: #DCFCE7; color: #166534;" data-cliente="${cliente}" data-tipo="pago">
+                <span class="material-symbols-outlined text-[1.125rem]">payments</span> Pago
               </button>
             </div>
             <div class="mt-2">
@@ -3243,27 +3702,39 @@ async function fetchMovimientos() {
   const scrollY = window.scrollY;
 
   try {
-    const { data, error } = await getSupabase()
-      .from('movimientos')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Movimientos y perfiles en paralelo (antes era secuencial).
+    const [{ data, error }] = await Promise.all([
+      getSupabase().from('movimientos').select('*').order('created_at', { ascending: false }),
+      fetchPerfilesAdmin(),
+    ]);
 
     if (error) throw error;
 
-    movimientosData = data || [];
-    invalidateClientesCache();
-    await fetchPerfilesAdmin();
-    refreshClienteDatalist();
-    renderClientes();
-    renderPedidosSemanales();
-    renderHistorialSemanas();
-    updateCharts();
-    renderGamificacion();
-    requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
+    movimientosServidor = data || [];
+    mostrandoCopiaLocal = false;
+    copiaLocalGuardadaEn = Date.now();
+    window.BMStore?.cacheSet('movimientos', movimientosServidor);
   } catch (err) {
     console.error(err);
-    renderEmptyState(container, 'Error al cargar movimientos.');
+    const cached = await window.BMStore?.cacheGet('movimientos');
+    if (!cached) {
+      renderEmptyState(
+        container,
+        isNetworkError(err)
+          ? 'Sin internet y todavía no hay datos guardados en este teléfono. Conéctate una vez para descargarlos.'
+          : 'Error al cargar movimientos.'
+      );
+      updateEstadoConexion();
+      return;
+    }
+    movimientosServidor = cached.value || [];
+    mostrandoCopiaLocal = true;
+    copiaLocalGuardadaEn = cached.savedAt;
   }
+
+  await rebuildDatosConPendientes();
+  updateEstadoConexion();
+  requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' }));
 }
 
 async function handlePedidoSubmit(event) {
@@ -3291,32 +3762,29 @@ async function handlePedidoSubmit(event) {
   if (btn) setButtonLoading(btn, true);
 
   try {
-    const arrayUrlsFotos = [];
-
-    if (fotosInput?.files?.length) {
-      for (const file of fotosInput.files) {
-        const compressed = await compressImage(file);
-        const url = await uploadToStorage(compressed);
-        arrayUrlsFotos.push(url);
-      }
-    }
-
-    const { error } = await getSupabase().from('movimientos').insert({
-      cliente,
-      tipo: 'pedido',
-      monto,
-      descripcion: descripcion || null,
-      array_urls_fotos: arrayUrlsFotos,
-      fecha: getTodayLocalDateString(),
+    const { enCola } = await guardarRegistro({
+      table: 'movimientos',
+      payload: {
+        cliente,
+        tipo: 'pedido',
+        monto,
+        descripcion: descripcion || null,
+        array_urls_fotos: [],
+        fecha: getTodayLocalDateString(),
+      },
+      files: fotosInput?.files?.length ? Array.from(fotosInput.files) : [],
     });
 
-    if (error) throw error;
-
     document.getElementById('form-pedido')?.reset();
+    document.getElementById('pedido-cliente')?.dispatchEvent(new Event('input'));
     if (fotosInput) fotosInput.value = '';
     clearFilePreview('preview-pedido', 'dropzone-pedido', 'Seleccionar Imágenes', true);
     updatePedidoFechaInfo();
 
+    if (enCola) {
+      toastGuardadoEnTelefono();
+      return;
+    }
     await fetchMovimientos();
     showSuccessToast('Pedido guardado', {
       actionLabel: 'Ver en Pedidos',
@@ -3357,33 +3825,30 @@ async function handlePagoSubmit(event) {
   if (btn) setButtonLoading(btn, true);
 
   try {
-    const arrayUrlsFotos = [];
-
-    if (fotoInput?.files?.length) {
-      for (const file of fotoInput.files) {
-        const compressed = await compressImage(file);
-        const url = await uploadToStorage(compressed);
-        arrayUrlsFotos.push(url);
-      }
-    }
-
-    const { error } = await getSupabase().from('movimientos').insert({
-      cliente,
-      tipo: 'pago',
-      monto,
-      descripcion: descripcion || null,
-      array_urls_fotos: arrayUrlsFotos,
-      fecha,
-      hora,
+    const { enCola } = await guardarRegistro({
+      table: 'movimientos',
+      payload: {
+        cliente,
+        tipo: 'pago',
+        monto,
+        descripcion: descripcion || null,
+        array_urls_fotos: [],
+        fecha: fecha || getTodayLocalDateString(),
+        hora: hora || null,
+      },
+      files: fotoInput?.files?.length ? Array.from(fotoInput.files) : [],
     });
 
-    if (error) throw error;
-
     document.getElementById('form-pago')?.reset();
+    document.getElementById('pago-cliente')?.dispatchEvent(new Event('input'));
     autofillPagoFechaHora();
     if (fotoInput) fotoInput.value = '';
     clearFilePreview('preview-pago', 'dropzone-pago', 'Subir Comprobantes');
 
+    if (enCola) {
+      toastGuardadoEnTelefono();
+      return;
+    }
     await fetchMovimientos();
     showSuccessToast();
   } catch (err) {
@@ -3446,32 +3911,33 @@ function renderAsociados() {
       return `
         <div class="rounded-2xl p-4 flex flex-col gap-3 transition-all" style="background: #FFFFFF; border-left: 4px solid #00B2E3; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
           <div class="flex items-center gap-3">
-            <div class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+            <div class="avatar-iniciales w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                  style="background: #E0F7FB; color: #00667A;">
               ${getInitials(asociado.nombre_nuevo)}
             </div>
             <div class="flex-1 min-w-0">
-              <h4 class="font-semibold text-on-surface truncate text-[15px]">${nombre}</h4>
+              <h4 class="font-semibold text-on-surface break-words leading-tight text-[0.9375rem]">${nombre}</h4>
               ${
                 asociado.recomendador
-                  ? `<p class="text-[11px] text-outline truncate">Recomendada por: ${escapeHtml(asociado.recomendador)}</p>`
+                  ? `<p class="text-[0.75rem] text-outline truncate">Recomendada por: ${escapeHtml(asociado.recomendador)}</p>`
                   : ''
               }
               ${
                 asociado.telefono
-                  ? `<p class="text-[11px] text-outline">${escapeHtml(asociado.telefono)}</p>`
+                  ? `<p class="text-[0.75rem] text-outline">${escapeHtml(asociado.telefono)}</p>`
                   : ''
               }
-              <p class="text-[11px] text-outline mt-1">${formatFecha(asociado.created_at)}</p>
+              <p class="text-[0.75rem] text-outline mt-1">${formatFecha(asociado.created_at)}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
+              ${asociado._pendiente ? pendienteBadgeHtml(asociado) : `
               <button type="button" class="btn-editar btn-editar-asociado" data-id="${asociado.id}">
-                <span class="material-symbols-outlined text-[14px]" data-icon="edit">edit</span>
+                <span class="material-symbols-outlined text-[0.875rem]" data-icon="edit">edit</span>
                 Editar
               </button>
               <button type="button" class="btn-eliminar btn-eliminar-asociado" data-id="${asociado.id}" title="Eliminar">
-                <span class="material-symbols-outlined text-[14px]">delete</span>
-              </button>
+                <span class="material-symbols-outlined text-[0.875rem]">delete</span>
+              </button>`}
             </div>
           </div>
           ${
@@ -3504,12 +3970,20 @@ async function fetchAsociados() {
 
     if (error) throw error;
 
-    asociadosData = data || [];
-    renderAsociados();
+    asociadosServidor = data || [];
+    window.BMStore?.cacheSet('asociados', asociadosServidor);
   } catch (err) {
     console.error(err);
-    renderEmptyState(container, 'Error al cargar asociados.');
+    const cached = await window.BMStore?.cacheGet('asociados');
+    if (!cached) {
+      renderEmptyState(container, isNetworkError(err) ? 'Sin internet: aún no hay asociados guardados en este teléfono.' : 'Error al cargar asociados.');
+      return;
+    }
+    asociadosServidor = cached.value || [];
   }
+  const pendientes = (await window.BMStore?.outboxList()) || [];
+  asociadosData = [...pendientesComoFilas(pendientes, 'asociados'), ...asociadosServidor];
+  renderAsociados();
 }
 
 async function handleAltasSubmit(event) {
@@ -3530,27 +4004,28 @@ async function handleAltasSubmit(event) {
   if (btn) setButtonLoading(btn, true);
 
   try {
-    let urlIne = null;
-
-    if (fotoInput?.files?.[0]) {
-      const compressed = await compressImage(fotoInput.files[0]);
-      urlIne = await uploadToStorage(compressed, 'ine_fotos');
-    }
-
-    const { error } = await getSupabase().from('asociados').insert({
-      nombre_nuevo: nombre,
-      telefono: telefono || null,
-      correo: correo || null,
-      recomendador: recomendador || null,
-      url_ine: urlIne,
+    const { enCola } = await guardarRegistro({
+      table: 'asociados',
+      payload: {
+        nombre_nuevo: nombre,
+        telefono: telefono || null,
+        correo: correo || null,
+        recomendador: recomendador || null,
+        url_ine: null,
+      },
+      files: fotoInput?.files?.[0] ? [fotoInput.files[0]] : [],
+      bucket: 'ine_fotos',
+      photoField: 'url_ine',
     });
-
-    if (error) throw error;
 
     document.getElementById('form-altas')?.reset();
     if (fotoInput) fotoInput.value = '';
     clearFilePreview('preview-ine', 'dropzone-ine', 'Subir Identificación');
 
+    if (enCola) {
+      toastGuardadoEnTelefono();
+      return;
+    }
     await fetchAsociados();
     showSuccessToast();
   } catch (err) {
@@ -3676,7 +4151,7 @@ function renderSemanaBadge() {
   if (!badge) return;
   badge.innerHTML = `
     <div>${getCurrentWeekLabel()}</div>
-    <div class="text-[11px] font-semibold normal-case tracking-normal mt-0.5 opacity-90">${getNextResetLabel()}</div>
+    <div class="text-[0.75rem] font-semibold normal-case tracking-normal mt-0.5 opacity-90">${getNextResetLabel()}</div>
   `;
 }
 
@@ -3803,18 +4278,18 @@ function renderResumenSemanal(totalMonto, numClientes, numPedidos, numDeudoresGl
   container.innerHTML = `
     <div class="grid grid-cols-2 gap-3 mb-3">
       <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #E0F7FB, #B3E5FC); border-left: 4px solid #00B2E3;">
-        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #00667A;">Esta semana</p>
+        <p class="text-[0.75rem] font-bold uppercase tracking-wider" style="color: #00667A;">Esta semana</p>
         <p class="text-lg font-bold" style="color: #00667A;">${formatMoney(totalMonto)}</p>
-        <p class="text-[10px] font-semibold" style="color: #00667A; opacity: 0.7;">${numClientes} clientes \u00B7 ${numPedidos} pedidos</p>
+        <p class="text-[0.75rem] font-semibold" style="color: #00667A; opacity: 0.7;">${numClientes} clientes \u00B7 ${numPedidos} pedidos</p>
       </div>
       <div class="rounded-xl p-3 text-center" style="background: linear-gradient(135deg, #FEE2E2, #FECACA); border-left: 4px solid #DC2626;">
-        <p class="text-[10px] font-bold uppercase tracking-wider" style="color: #991B1B;">Deudores</p>
+        <p class="text-[0.75rem] font-bold uppercase tracking-wider" style="color: #991B1B;">Deudores</p>
         <p class="text-lg font-bold" style="color: #991B1B;">${formatMoney(totalDeudoresGlobal)}</p>
-        <p class="text-[10px] font-semibold" style="color: #991B1B; opacity: 0.7;">${numDeudoresGlobal} deudores</p>
+        <p class="text-[0.75rem] font-semibold" style="color: #991B1B; opacity: 0.7;">${numDeudoresGlobal} deudores</p>
       </div>
     </div>
     <button type="button" id="btn-compartir-semana" class="w-full h-11 mb-4 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all text-white" style="background: linear-gradient(135deg, #00A859, #007A3D); box-shadow: 0 2px 8px rgba(0,168,89,0.3);">
-      <span class="material-symbols-outlined text-[20px]">share</span>
+      <span class="material-symbols-outlined text-[1.25rem]">share</span>
       Compartir por WhatsApp
     </button>
   `;
@@ -3871,17 +4346,17 @@ function renderPedidosSemanales() {
           if (mov.url_foto) {
             fotosHtml = `<div class="flex gap-1.5 mt-1"><div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F3F4F6;"><a href="${escapeHtml(mov.url_foto)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(mov.url_foto)}" alt="Foto" loading="lazy"></a></div></div>`;
           } else if (fotos.length) {
-            fotosHtml = `<div class="flex gap-1.5 mt-1">${fotos.slice(0, 4).map((url, i) => `<div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F3F4F6;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(url)}" alt="Foto ${i + 1}" loading="lazy"></a></div>`).join('')}${fotos.length > 4 ? `<div class="w-10 h-10 rounded-lg flex items-center justify-center text-[10px] font-bold" style="background:#E0F7FB;color:#00667A;">+${fotos.length - 4}</div>` : ''}</div>`;
+            fotosHtml = `<div class="flex gap-1.5 mt-1">${fotos.slice(0, 4).map((url, i) => `<div class="w-10 h-10 rounded-lg overflow-hidden" style="background:#F3F4F6;"><a href="${escapeHtml(url)}" target="_blank" rel="noopener"><img class="w-full h-full object-cover" src="${escapeHtml(url)}" alt="Foto ${i + 1}" loading="lazy"></a></div>`).join('')}${fotos.length > 4 ? `<div class="w-10 h-10 rounded-lg flex items-center justify-center text-[0.75rem] font-bold" style="background:#E0F7FB;color:#00667A;">+${fotos.length - 4}</div>` : ''}</div>`;
           }
 
           return `
             <div class="py-1.5 border-t border-outline-variant/10 first:border-0 first:pt-0">
               <div class="flex items-center justify-between">
                 <div class="min-w-0">
-                  ${desc ? `<p class="text-[12px] text-outline truncate">${desc}</p>` : ''}
-                  <p class="text-[11px] text-outline">${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}</p>
+                  ${desc ? `<p class="text-[0.75rem] text-outline truncate">${desc}</p>` : ''}
+                  <p class="text-[0.75rem] text-outline">${formatFecha(getMovimientoFecha(mov))}${mov.hora ? ` \u00B7 ${formatHora(mov.hora)}` : ''}</p>
                 </div>
-                <p class="text-[13px] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(mov.monto)}</p>
+                <p class="text-[0.8125rem] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(mov.monto)}</p>
               </div>
               ${fotosHtml}
             </div>
@@ -3892,16 +4367,16 @@ function renderPedidosSemanales() {
       return `
         <div class="rounded-2xl p-4 transition-all" style="background: #FFFFFF; border-left: 4px solid ${saldoColor}; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
           <div class="flex items-center gap-3 mb-2">
-            <div class="w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
+            <div class="avatar-iniciales w-11 h-11 rounded-full flex items-center justify-center font-bold text-sm shrink-0"
                  style="background: ${saldoColor}18; color: ${saldoColor};">
               ${getInitials(group.cliente)}
             </div>
             <div class="flex-1 min-w-0">
-              <h4 class="font-semibold text-on-surface truncate text-[15px]">${cliente}</h4>
-              <p class="text-[11px] font-bold" style="color: ${saldoColor};">${saldoLabel}: ${formatMoney(Math.abs(saldo))}</p>
+              <h4 class="font-semibold text-on-surface break-words leading-tight text-[0.9375rem]">${cliente}</h4>
+              <p class="text-[0.75rem] font-bold" style="color: ${saldoColor};">${saldoLabel}: ${formatMoney(Math.abs(saldo))}</p>
             </div>
             <div class="text-right shrink-0">
-              <p class="text-[11px] text-outline">Esta semana</p>
+              <p class="text-[0.75rem] text-outline">Esta semana</p>
               <p class="text-base font-bold" style="color: #00B2E3;">${formatMoney(group.totalPedido)}</p>
             </div>
           </div>
@@ -3947,16 +4422,16 @@ function renderHistorialSemanas() {
         .map((c) => `
           <div class="flex items-center justify-between py-2 border-t border-outline-variant/10 first:border-0 first:pt-0">
             <div class="flex items-center gap-2 min-w-0">
-              <div class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0"
+              <div class="w-7 h-7 rounded-full flex items-center justify-center text-[0.75rem] font-bold shrink-0"
                    style="background: #E0F7FB; color: #00667A;">
                 ${getInitials(c.cliente)}
               </div>
               <div class="min-w-0">
-                <p class="text-[13px] font-semibold text-on-surface truncate">${escapeHtml(c.cliente)}</p>
-                <p class="text-[11px] text-outline">${c.movimientos.length} pedido${c.movimientos.length > 1 ? 's' : ''}</p>
+                <p class="text-[0.8125rem] font-semibold text-on-surface truncate">${escapeHtml(c.cliente)}</p>
+                <p class="text-[0.75rem] text-outline">${c.movimientos.length} pedido${c.movimientos.length > 1 ? 's' : ''}</p>
               </div>
             </div>
-            <p class="text-[13px] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(c.totalPedido)}</p>
+            <p class="text-[0.8125rem] font-bold shrink-0" style="color: #00B2E3;">${formatMoney(c.totalPedido)}</p>
           </div>
         `)
         .join('');
@@ -3965,15 +4440,15 @@ function renderHistorialSemanas() {
         <div class="mb-2">
           <div class="semana-toggle-bar w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-[#00B2E3]" style="background: #F3F4F6;" data-week="${weekKey}" role="button" tabindex="0" aria-expanded="false">
             <div class="semana-title-area flex-1">
-              <p class="text-[13px] font-bold text-on-surface">Semana del ${label}</p>
-              <p class="text-[11px] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
+              <p class="text-[0.8125rem] font-bold text-on-surface">Semana del ${label}</p>
+              <p class="text-[0.75rem] text-outline">${semanaPedidos.length} pedidos \u00B7 ${formatMoney(total)} \u00B7 ${weekGroups.length} clientes</p>
             </div>
             <div class="flex items-center gap-2">
-              <button type="button" class="share-week-btn flex items-center gap-1 text-[11px] font-semibold text-white px-3 py-1.5 rounded-full z-10 active:scale-95 transition-transform" style="background: #00A859;" data-share-week="${weekKey}">
-                <span class="material-symbols-outlined text-[14px]">share</span>
+              <button type="button" class="share-week-btn flex items-center gap-1 text-[0.75rem] font-semibold text-white px-3 py-1.5 rounded-full z-10 active:scale-95 transition-transform" style="background: #00A859;" data-share-week="${weekKey}">
+                <span class="material-symbols-outlined text-[0.875rem]">share</span>
                 Compartir
               </button>
-              <span class="material-symbols-outlined text-[18px] text-outline transition-transform semana-chevron">expand_more</span>
+              <span class="material-symbols-outlined text-[1.125rem] text-outline transition-transform semana-chevron">expand_more</span>
             </div>
           </div>
           <div class="semana-pedidos hidden px-4 pb-3" data-week-content="${weekKey}">
@@ -4044,6 +4519,8 @@ function initPwaInstallHint() {
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initPwaInstallHint();
+  initTamanoLetra();
+  initModoSinConexion();
 
   document.getElementById('btn-modo-pedido')?.addEventListener('click', () => setModoFormulario('pedido'));
   document.getElementById('btn-modo-pago')?.addEventListener('click', () => setModoFormulario('pago'));

@@ -1,6 +1,6 @@
 <!DOCTYPE html><html class="light" lang="es" style=""><head>
     <meta charset="utf-8">
-    <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
+    <meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport">
     <title>BetterMancera</title>
     <link rel="manifest" href="manifest.webmanifest">
     <meta name="theme-color" content="#00B2E3">
@@ -10,332 +10,42 @@
     <meta name="apple-mobile-web-app-title" content="BetterMancera">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <script src="tailwind.config.js"></script>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://lijzftjgevwnjorpycxa.supabase.co https://cdn.jsdelivr.net; img-src 'self' data: blob: https://lijzftjgevwnjorpycxa.supabase.co; frame-src 'none'; base-uri 'self'; form-action 'self';">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://lijzftjgevwnjorpycxa.supabase.co wss://lijzftjgevwnjorpycxa.supabase.co; img-src 'self' data: blob: https://lijzftjgevwnjorpycxa.supabase.co; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';">
     <link rel="dns-prefetch" href="https://lijzftjgevwnjorpycxa.supabase.co">
-    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&amp;display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
-    <style>
-            body {
-                -webkit-tap-highlight-color: transparent;
-                background: #FFFFFF;
-            }
-            .pb-safe {
-                padding-bottom: max(12px, env(safe-area-inset-bottom));
-            }
-            @media (display-mode: standalone) {
-                header.fixed.top-0 {
-                    padding-top: env(safe-area-inset-top);
-                    height: calc(4rem + env(safe-area-inset-top));
-                }
-                main.pt-20 {
-                    padding-top: calc(5rem + env(safe-area-inset-top));
-                }
-                #toast-container {
-                    top: calc(5rem + env(safe-area-inset-top));
-                }
-            }
-            #ios-install-banner.hidden {
-                display: none !important;
-            }
-            .view-section {
-                display: none;
-                animation: fadeIn 0.3s ease-in-out;
-            }
-            .view-section.active {
-                display: block;
-            }
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            /* Form Input Focus — Betterware Blue */
-            .form-input {
-                border: 1.5px solid #E5E7EB;
-                transition: all 0.2s ease;
-            }
-            .form-input:focus {
-                box-shadow: 0 0 0 3px rgba(0, 178, 227, 0.2);
-                border-color: #00B2E3;
-                outline: none;
-            }
-            /* Drawer */
-            #drawer-overlay.hidden {
-                display: none !important;
-                pointer-events: none;
-            }
-            #nav-drawer {
-                transform: translateX(-100%);
-            }
-            #nav-drawer.drawer-open {
-                transform: translateX(0);
-            }
-            /* Photo Previews */
-            .preview-grid {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 8px;
-                margin-top: 8px;
-            }
-            .preview-thumb {
-                width: 80px;
-                height: 80px;
-                object-fit: cover;
-                border-radius: 12px;
-                border: 2px solid #E5E7EB;
-            }
-            /* Toast */
-            #toast-container {
-                position: fixed;
-                top: 5rem;
-                left: 50%;
-                transform: translateX(-50%);
-                z-index: 100;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 8px;
-                pointer-events: none;
-            }
-            .success-toast {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 12px 20px;
-                border-radius: 9999px;
-                background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
-                border: 1px solid #B3E5FC;
-                box-shadow: 0 4px 16px rgba(0, 178, 227, 0.15);
-                opacity: 0;
-                transform: translateY(-12px) scale(0.95);
-                transition: opacity 0.3s ease, transform 0.3s ease;
-            }
-            .success-toast.show {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-            .success-toast.hide {
-                opacity: 0;
-                transform: translateY(-8px) scale(0.95);
-            }
-            .success-toast .toast-icon {
-                color: #00B2E3;
-                font-size: 24px;
-                line-height: 1;
-            }
-            .success-toast .toast-text {
-                color: #00667A;
-                font-weight: 600;
-                font-size: 14px;
-            }
-            .success-toast.has-action {
-                pointer-events: auto;
-                flex-direction: column;
-                align-items: stretch;
-                border-radius: 16px;
-                padding: 14px 16px;
-                min-width: 260px;
-            }
-            .toast-action-btn {
-                margin-top: 10px;
-                width: 100%;
-                height: 36px;
-                border-radius: 9999px;
-                background: linear-gradient(135deg, #00B2E3, #002855);
-                color: white;
-                font-weight: 600;
-                font-size: 13px;
-                border: none;
-                cursor: pointer;
-            }
-            .toast-action-btn:active {
-                transform: scale(0.98);
-            }
-            /* Edit / Delete buttons */
-            #modal-editar {
-                z-index: 80;
-                opacity: 1;
-                transition: opacity 0.3s ease;
-            }
-            #modal-editar.hidden {
-                opacity: 0;
-                pointer-events: none;
-            }
-            .modal-panel {
-                max-height: calc(100vh - 4rem);
-                overflow-y: auto;
-                border-radius: 20px 20px 0 0;
-                transform: translateY(0);
-                transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-            }
-            #modal-editar.hidden .modal-panel {
-                transform: translateY(100%);
-            }
-            @media (min-width: 640px) {
-                .modal-panel {
-                    border-radius: 20px;
-                    transform: translateY(0) scale(1);
-                    transition: transform 0.25s ease, opacity 0.25s ease;
-                }
-                #modal-editar.hidden .modal-panel {
-                    transform: translateY(0) scale(0.95);
-                }
-            }
-            /* Edit Button — Betterware Blue */
-            .btn-editar {
-                display: inline-flex;
-                align-items: center;
-                gap: 4px;
-                padding: 4px 12px;
-                border-radius: 9999px;
-                background: transparent;
-                color: #00B2E3;
-                border: 1.5px solid rgba(0, 178, 227, 0.25);
-                font-size: 13px;
-                font-weight: 600;
-                flex-shrink: 0;
-                transition: all 0.2s ease;
-            }
-            .btn-editar:active {
-                background: #E0F7FB;
-                transform: scale(0.95);
-            }
-            .btn-eliminar {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 4px 10px;
-                border-radius: 9999px;
-                background: transparent;
-                color: #DC2626;
-                border: 1.5px solid rgba(220, 38, 38, 0.25);
-                font-size: 13px;
-                font-weight: 600;
-                flex-shrink: 0;
-                transition: all 0.2s ease;
-            }
-            .btn-eliminar:active {
-                background: #FEE2E2;
-                transform: scale(0.95);
-            }
-            .chip-sugerencia-cliente {
-                display: inline-flex;
-                align-items: center;
-                padding: 6px 12px;
-                margin-top: 6px;
-                margin-right: 6px;
-                border-radius: 9999px;
-                font-size: 12px;
-                font-weight: 600;
-                border: 1.5px solid #00B2E3;
-                background: #E0F7FB;
-                color: #00667A;
-                cursor: pointer;
-            }
-            .chip-sugerencia-cliente:active {
-                transform: scale(0.96);
-            }
-            .pedido-fecha-info {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 10px 14px;
-                margin-bottom: 12px;
-                border-radius: 12px;
-                background: #E0F7FB;
-                border: 1px solid #B3E5FC;
-                color: #00667A;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            /* Modal — Bottom Sheet */
-            .chip-filtro {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                padding: 8px 16px;
-                border-radius: 9999px;
-                font-size: 13px;
-                font-weight: 600;
-                border: 1.5px solid #E5E7EB;
-                background: #ffffff;
-                color: #6B7280;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                user-select: none;
-                -webkit-user-select: none;
-                white-space: nowrap;
-            }
-            .chip-filtro:active {
-                transform: scale(0.96);
-            }
-            .chip-filtro.active {
-                background: #E0F7FB;
-                color: #00667A;
-                border-color: #00B2E3;
-            }
-            .chip-filtro .chip-count {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 20px;
-                height: 20px;
-                padding: 0 6px;
-                border-radius: 9999px;
-                font-size: 11px;
-                font-weight: 700;
-                background: rgba(0,0,0,0.06);
-                color: inherit;
-            }
-            .chip-filtro.active .chip-count {
-                background: rgba(0,102,122,0.12);
-            }
-            /* Dropzones — Betterware Blue Gradient */
-            .dropzone {
-                border: 2px dashed #66D0F0;
-                background: linear-gradient(135deg, #FFFFFF, #E0F7FB);
-                border-radius: 16px;
-                transition: all 0.2s ease;
-            }
-            .dropzone:active {
-                transform: scale(0.98);
-                border-color: #00B2E3;
-                background: linear-gradient(135deg, #E0F7FB, #B3E5FC);
-            }
-            /* Gradient Buttons */
-            .btn-gradient {
-                background: linear-gradient(135deg, #00B2E3, #002855);
-                box-shadow: 0 2px 8px rgba(0, 178, 227, 0.3);
-            }
-            .btn-gradient:active {
-                transform: scale(0.98);
-            }
-        </style>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.1/dist/browser-image-compression.js"></script>
+    <!-- prefs.js va primero para aplicar el tamaño de letra antes de pintar (sin parpadeo) -->
+    <script src="prefs.js"></script>
+    <link rel="preload" href="vendor/fonts/material-symbols-outlined-subset.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Librerías locales con versión fija: funcionan sin internet y no cambian solas -->
+    <script src="vendor/supabase-2.119.0.min.js"></script>
+    <script src="vendor/browser-image-compression-2.0.1.js"></script>
     </head>
     <body class="bg-background text-on-surface font-body-md min-h-screen pb-24 md:pb-0 overflow-x-hidden">
     <!-- TopAppBar -->
     <header class="fixed top-0 w-full z-50 h-16 px-margin-mobile flex items-center justify-between" style="background: linear-gradient(135deg, #00B2E3, #002855); box-shadow: 0 2px 12px rgba(0,178,227,0.3);">
-    <div class="flex items-center gap-md">
-    <button type="button" class="p-2 -ml-2 rounded-full hover:bg-white/20 transition-colors active:scale-95 text-white/90" id="btn-menu">
+    <div class="flex items-center gap-md min-w-0">
+    <button type="button" class="p-2 -ml-2 rounded-full hover:bg-white/20 transition-colors active:scale-95 text-white/90 shrink-0" id="btn-menu">
     <span class="material-symbols-outlined" data-icon="menu">menu</span>
     </button>
-    <h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-white tracking-tight">BetterMancera</h1>
+    <h1 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-white tracking-tight truncate">BetterMancera</h1>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 shrink-0">
+      <button type="button" class="hidden items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full active:scale-95" style="background:#FEF3C7;color:#92400E;" id="estado-conexion" aria-live="polite">
+        <span class="material-symbols-outlined text-[1rem]" id="estado-conexion-icono">cloud_off</span>
+        <span id="estado-conexion-texto">Sin internet</span>
+      </button>
+      <button type="button" class="flex items-center gap-1 text-white bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-full transition-colors active:scale-95 font-bold" id="btn-tamano-letra" title="Cambiar tamaño de letra" aria-label="Cambiar tamaño de letra">
+        <span class="material-symbols-outlined text-[1.25rem]">text_increase</span>
+      </button>
       <button type="button" class="flex items-center gap-1 text-xs text-white/90 bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition-colors active:scale-95" id="btn-logout-header" title="Cerrar sesión de admin">
-        <span class="material-symbols-outlined text-[16px]">logout</span>
+        <span class="material-symbols-outlined text-[1rem]">logout</span>
         <span class="hidden sm:inline">Salir</span>
       </button>
     </div>
     </header>
     <!-- Navigation Drawer (Overlay) -->
     <div class="fixed inset-0 bg-black/50 z-[60] hidden transition-opacity duration-300 opacity-0" id="drawer-overlay"></div>
-    <nav class="fixed top-0 left-0 h-full w-72 rounded-r-2xl shadow-2xl z-[70] transform -translate-x-full transition-transform duration-300 flex flex-col justify-between p-md" style="background: #FFFFFF;" id="nav-drawer">
+    <nav class="fixed top-0 left-0 h-full w-72 max-w-[85vw] overflow-y-auto rounded-r-2xl shadow-2xl z-[70] transform -translate-x-full transition-transform duration-300 flex flex-col justify-between p-md" style="background: #FFFFFF;" id="nav-drawer">
     <div>
       <div class="flex items-center justify-between mb-lg pt-sm px-sm">
       <h2 class="font-headline-md text-headline-md" style="color: #00667A;">Menu Principal</h2>
@@ -359,6 +69,12 @@
       </div>
     </div>
     <div class="border-t border-outline-variant/20 pt-4 px-sm">
+      <p class="text-sm font-semibold text-on-surface-variant mb-2 flex items-center gap-2"><span class="material-symbols-outlined text-[1.25rem]">text_fields</span>Tamaño de letra</p>
+      <div class="grid grid-cols-3 gap-2 mb-4" id="selector-tamano-letra" role="radiogroup" aria-label="Tamaño de letra">
+        <button type="button" class="opcion-tamano rounded-xl border-2 py-2 font-bold" data-size="normal" role="radio" style="font-size:16px">A<span class="block text-xs font-semibold">Normal</span></button>
+        <button type="button" class="opcion-tamano rounded-xl border-2 py-2 font-bold" data-size="grande" role="radio" style="font-size:20px">A<span class="block text-xs font-semibold">Grande</span></button>
+        <button type="button" class="opcion-tamano rounded-xl border-2 py-2 font-bold" data-size="muy-grande" role="radio" style="font-size:24px">A<span class="block text-xs font-semibold">Enorme</span></button>
+      </div>
       <button type="button" class="w-full flex items-center gap-md text-[#DC2626] px-md py-2.5 font-body-lg text-body-lg hover:bg-red-50 transition-all rounded-2xl active:scale-95" id="btn-logout-drawer">
         <span class="material-symbols-outlined">logout</span>
         Cerrar sesión
@@ -375,45 +91,45 @@
     <h2 class="font-headline-md text-headline-md text-on-surface">Cuenta de Cliente</h2>
     </div>
     <div class="flex gap-sm mb-md">
-    <button type="button" class="flex-1 h-11 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all btn-gradient text-white" id="btn-modo-pedido">
-    <span class="material-symbols-outlined text-[20px]">shopping_cart</span>
-                    Registrar pedido
+    <button type="button" class="flex-1 min-h-11 py-1 rounded-full font-button text-button flex items-center justify-center gap-sm transition-all btn-gradient text-white" id="btn-modo-pedido">
+    <span class="material-symbols-outlined text-[1.25rem]">shopping_cart</span>
+                    Pedido
                 </button>
-    <button type="button" class="flex-1 h-11 rounded-full font-button text-button bg-surface-container-high text-on-surface-variant flex items-center justify-center gap-sm transition-all hover:bg-surface-container" id="btn-modo-pago">
-    <span class="material-symbols-outlined text-[20px]">payments</span>
-                    Registrar pago
+    <button type="button" class="flex-1 min-h-11 py-1 rounded-full font-button text-button bg-surface-container-high text-on-surface-variant flex items-center justify-center gap-sm transition-all hover:bg-surface-container" id="btn-modo-pago">
+    <span class="material-symbols-outlined text-[1.25rem]">payments</span>
+                    Pago
                 </button>
     </div>
     <!-- Formulario Pedido -->
     <form class="space-y-4" id="form-pedido">
     <div class="pedido-fecha-info" id="pedido-fecha-info">
-    <span class="material-symbols-outlined text-[18px]">event</span>
+    <span class="material-symbols-outlined text-[1.125rem]">event</span>
     <span id="pedido-fecha-text">Cargando fecha...</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Cliente</label>
-    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-cliente" list="lista-clientes" placeholder="Ej. Juan Pérez" required type="text">
+    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-cliente" list="lista-clientes" placeholder="Ej. Juan Pérez" required type="text">
     <p class="font-label-md text-label-md mt-xs hidden" id="hint-pedido-cliente"></p>
     <div class="hidden" id="sugerencias-pedido-cliente"></div>
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Monto ($)</label>
     <div class="relative">
-    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
-    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pedido-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">attach_money</span>
+    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="pedido-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
     </div>
     </div>
     <div class="sm:col-span-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Descripcion (opcional)</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-descripcion" placeholder="Que pidio el cliente" type="text">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pedido-descripcion" placeholder="Que pidio el cliente" type="text">
     </div>
     </div>
     <div class="mt-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Fotos del Pedido</label>
     <input accept="image/*" class="hidden" id="input-fotos-pedido" multiple type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Seleccionar Imagenes" id="dropzone-pedido">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;">photo_library</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[2rem] mb-sm" style="color: #66D0F0;">photo_library</span>
     <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Seleccionar Imagenes</span>
     </div>
     <div class="preview-grid hidden" id="preview-pedido"></div>
@@ -428,35 +144,35 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Cliente</label>
-    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-cliente" list="lista-clientes" placeholder="Ej. Juan Perez" required type="text">
+    <input autocomplete="off" class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-cliente" list="lista-clientes" placeholder="Ej. Juan Perez" required type="text">
     <p class="font-label-md text-label-md mt-xs hidden" id="hint-pago-cliente"></p>
     <div class="hidden" id="sugerencias-pago-cliente"></div>
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Monto ($)</label>
     <div class="relative">
-    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
-    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
+    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">attach_money</span>
+    <input class="form-input w-full rounded-xl bg-white pl-10 pr-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="pago-monto" min="0.01" placeholder="0.00" required step="0.01" type="number">
     </div>
     </div>
     <div class="sm:col-span-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Descripcion (opcional)</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-descripcion" placeholder="Detalles del pago" type="text">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="pago-descripcion" placeholder="Detalles del pago" type="text">
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Fecha</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-fecha" type="date">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="pago-fecha" type="date">
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Hora</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="pago-hora" type="time">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="pago-hora" type="time">
     </div>
     </div>
     <div class="mt-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Comprobante (Fotos)</label>
     <input accept="image/*" class="hidden" id="input-foto-pago" multiple type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Comprobantes" id="dropzone-pago">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;">add_a_photo</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[2rem] mb-sm" style="color: #66D0F0;">add_a_photo</span>
     <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Subir Comprobantes</span>
     </div>
     <div class="preview-grid hidden" id="preview-pago"></div>
@@ -475,10 +191,10 @@
       <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px] text-[#00B2E3]">show_chart</span>
-            <h4 class="text-[13px] font-bold text-on-surface">Evolución de cobranza semanal</h4>
+            <span class="material-symbols-outlined text-[1.125rem] text-[#00B2E3]">show_chart</span>
+            <h4 class="text-[0.8125rem] font-bold text-on-surface">Evolución de cobranza semanal</h4>
           </div>
-          <span class="text-[11px] text-outline">Últimas 8 semanas</span>
+          <span class="text-[0.75rem] text-outline">Últimas 8 semanas</span>
         </div>
         <div class="w-full h-48 relative">
           <canvas id="chart-historico" role="img" aria-label="Gráfico de evolución semanal de pagos cobrados y pedidos por cobrar"></canvas>
@@ -489,8 +205,8 @@
         <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
-              <span class="material-symbols-outlined text-[18px] text-[#00A859]">bar_chart</span>
-              <h4 class="text-[13px] font-bold text-on-surface">Cobrado vs Pedidos</h4>
+              <span class="material-symbols-outlined text-[1.125rem] text-[#00A859]">bar_chart</span>
+              <h4 class="text-[0.8125rem] font-bold text-on-surface">Cobrado vs Pedidos</h4>
             </div>
           </div>
           <div class="w-full h-44 relative">
@@ -501,8 +217,8 @@
         <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-2">
-              <span class="material-symbols-outlined text-[18px] text-[#002855]">pie_chart</span>
-              <h4 class="text-[13px] font-bold text-on-surface">Distribución de cartera</h4>
+              <span class="material-symbols-outlined text-[1.125rem] text-[#002855]">pie_chart</span>
+              <h4 class="text-[0.8125rem] font-bold text-on-surface">Distribución de cartera</h4>
             </div>
           </div>
           <div class="w-full h-44 relative flex items-center justify-center">
@@ -518,18 +234,18 @@
       <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm" id="card-score-cobranza">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-[20px] text-[#00B2E3]">military_tech</span>
-            <h4 class="text-[14px] font-bold text-on-surface">Puntaje de Cobranza</h4>
+            <span class="material-symbols-outlined text-[1.25rem] text-[#00B2E3]">military_tech</span>
+            <h4 class="text-[0.875rem] font-bold text-on-surface">Puntaje de Cobranza</h4>
           </div>
-          <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full" id="score-nivel-badge" style="background: #E0F7FB; color: #00667A;">Calculando...</span>
+          <span class="text-[0.75rem] font-semibold px-2.5 py-0.5 rounded-full" id="score-nivel-badge" style="background: #E0F7FB; color: #00667A;">Calculando...</span>
         </div>
 
         <div class="flex items-center gap-4 mb-3">
           <div class="w-16 h-16 rounded-2xl flex flex-col items-center justify-center shrink-0" id="score-numero-wrap" style="background: linear-gradient(135deg, #00B2E3, #002855); color: white;">
             <span class="text-2xl font-black leading-none" id="score-numero">--</span>
-            <span class="text-[9px] font-bold uppercase opacity-80 mt-0.5">de 100</span>
+            <span class="text-[0.75rem] font-bold uppercase opacity-80 mt-0.5">de 100</span>
           </div>
-          <div class="flex-1 min-w-0 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
+          <div class="flex-1 min-w-0 grid grid-cols-2 gap-x-2 gap-y-1 text-[0.75rem]">
             <div><span class="text-outline">Tasa cobro:</span> <strong id="score-tasa" class="text-on-surface">--/40</strong></div>
             <div><span class="text-outline">Velocidad:</span> <strong id="score-velocidad" class="text-on-surface">--/25</strong></div>
             <div><span class="text-outline">Antigüedad:</span> <strong id="score-antiguedad" class="text-on-surface">--/20</strong></div>
@@ -538,8 +254,8 @@
         </div>
 
         <!-- Línea de Acción (Claude Corrección 4) -->
-        <div class="p-2.5 rounded-xl flex items-center gap-2 text-[12px] font-semibold" id="score-accion-line" style="background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E;">
-          <span class="material-symbols-outlined text-[18px] text-[#D97706] shrink-0">bolt</span>
+        <div class="p-2.5 rounded-xl flex items-center gap-2 text-[0.75rem] font-semibold" id="score-accion-line" style="background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E;">
+          <span class="material-symbols-outlined text-[1.125rem] text-[#D97706] shrink-0">bolt</span>
           <span id="score-accion-texto" class="truncate">Calculando siguiente acción...</span>
         </div>
       </div>
@@ -550,41 +266,41 @@
         <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between" id="card-meta-semanal">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-1.5">
-              <span class="material-symbols-outlined text-[18px] text-[#00A859]">flag</span>
-              <h4 class="text-[13px] font-bold text-on-surface">Meta de la semana</h4>
+              <span class="material-symbols-outlined text-[1.125rem] text-[#00A859]">flag</span>
+              <h4 class="text-[0.8125rem] font-bold text-on-surface">Meta de la semana</h4>
             </div>
-            <button type="button" class="text-[11px] font-semibold text-[#00B2E3] hover:underline flex items-center gap-0.5" id="btn-editar-meta">
-              <span class="material-symbols-outlined text-[13px]">edit</span> Editar
+            <button type="button" class="text-[0.75rem] font-semibold text-[#00B2E3] hover:underline flex items-center gap-0.5" id="btn-editar-meta">
+              <span class="material-symbols-outlined text-[0.8125rem]">edit</span> Editar
             </button>
           </div>
           <div class="mb-2">
             <div class="flex items-baseline justify-between mb-1">
-              <span class="text-[16px] font-black text-on-surface" id="meta-progreso-texto">$0 / $0</span>
-              <span class="text-[12px] font-bold" id="meta-porcentaje-texto" style="color: #00A859;">0%</span>
+              <span class="text-[1rem] font-black text-on-surface" id="meta-progreso-texto">$0 / $0</span>
+              <span class="text-[0.75rem] font-bold" id="meta-porcentaje-texto" style="color: #00A859;">0%</span>
             </div>
             <div class="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
               <div class="h-full rounded-full transition-all duration-500" id="meta-progreso-barra" style="width: 0%; background: linear-gradient(90deg, #00B2E3, #00A859);"></div>
             </div>
           </div>
-          <p class="text-[11px] text-outline truncate" id="meta-subtexto">Cargando meta semanal...</p>
+          <p class="text-[0.75rem] text-outline truncate" id="meta-subtexto">Cargando meta semanal...</p>
         </div>
 
         <!-- Card Racha de Cobranza -->
         <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm flex flex-col justify-between" id="card-racha-cobranza">
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-1.5">
-              <span class="material-symbols-outlined text-[18px] text-[#EA580C]">local_fire_department</span>
-              <h4 class="text-[13px] font-bold text-on-surface">Racha activa</h4>
+              <span class="material-symbols-outlined text-[1.125rem] text-[#EA580C]">local_fire_department</span>
+              <h4 class="text-[0.8125rem] font-bold text-on-surface">Racha activa</h4>
             </div>
-            <span class="text-[11px] text-outline" id="racha-record-label">Récord: 0 sem</span>
+            <span class="text-[0.75rem] text-outline" id="racha-record-label">Récord: 0 sem</span>
           </div>
           <div class="flex items-center gap-3">
             <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style="background: #FFF7ED; color: #EA580C; border: 1px solid #FFEDD5;">
               <span class="text-xl font-black" id="racha-numero">0</span>
             </div>
             <div class="min-w-0 flex-1">
-              <p class="text-[13px] font-bold text-on-surface" id="racha-titulo">0 semanas cumpliendo</p>
-              <p class="text-[11px] text-outline truncate" id="racha-detalle">Registra pagos para mantener la racha</p>
+              <p class="text-[0.8125rem] font-bold text-on-surface" id="racha-titulo">0 semanas cumpliendo</p>
+              <p class="text-[0.75rem] text-outline truncate" id="racha-detalle">Registra pagos para mantener la racha</p>
             </div>
           </div>
         </div>
@@ -594,10 +310,10 @@
       <div class="rounded-2xl p-4 bg-white border border-outline-variant/20 shadow-sm" id="card-ranking-morosos">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-[18px] text-[#DC2626]">priority_high</span>
-            <h4 class="text-[13px] font-bold text-on-surface">Top cobros prioritarios</h4>
+            <span class="material-symbols-outlined text-[1.125rem] text-[#DC2626]">priority_high</span>
+            <h4 class="text-[0.8125rem] font-bold text-on-surface">Top cobros prioritarios</h4>
           </div>
-          <span class="text-[11px] text-outline">Anclado por impacto y mora</span>
+          <span class="text-[0.75rem] text-outline">Anclado por impacto y mora</span>
         </div>
         <div class="divide-y divide-gray-100" id="ranking-morosos-lista">
           <p class="text-xs text-outline py-3 text-center">Sin deudores pendientes</p>
@@ -609,23 +325,23 @@
       <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Cuentas de Clientes
     </h3>
-    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-clientes">
+    <div class="flex flex-wrap gap-2 mb-3 px-1" id="chips-saldo-clientes">
         <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-todos">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-deudores">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="al-dia">Al dia <span class="chip-count" id="count-al-dia">0</span></button>
-        <button type="button" class="chip-filtro" data-filtro="online" id="chip-filtro-online"><span class="material-symbols-outlined text-[14px]">language</span> Online <span class="chip-count" id="count-online">0</span></button>
+        <button type="button" class="chip-filtro" data-filtro="online" id="chip-filtro-online"><span class="material-symbols-outlined text-[0.875rem]">language</span> Online <span class="chip-count" id="count-online">0</span></button>
     </div>
     <div class="rounded-xl p-3 mb-3 border border-outline-variant/20 grid grid-cols-1 sm:grid-cols-3 gap-2" style="background: #fff;">
-    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-clientes-nombre" placeholder="Buscar por nombre..." type="search">
-    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all" id="filtro-clientes-fecha" type="date">
-    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[13px] hover:bg-surface-container-high transition-colors" id="filtro-clientes-limpiar">Limpiar filtros</button>
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-clientes-nombre" placeholder="Buscar por nombre..." type="search">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="filtro-clientes-fecha" type="date">
+    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[0.8125rem] hover:bg-surface-container-high transition-colors" id="filtro-clientes-limpiar">Limpiar filtros</button>
     </div>
     <div class="grid grid-cols-1 gap-3" id="historial-clientes"></div>
     </div>
     </section>
     <!-- VIEW 2: PEDIDOS SEMANALES -->
     <section class="view-section" id="vista-pedidos">
-    <div class="mb-4 px-3 py-2.5 rounded-xl text-[12px] font-bold uppercase tracking-wider" id="semana-actual-badge" style="background: #E0F7FB; color: #00667A;">
+    <div class="mb-4 px-3 py-2.5 rounded-xl text-[0.75rem] font-bold uppercase tracking-wider" id="semana-actual-badge" style="background: #E0F7FB; color: #00667A;">
       Cargando semana...
     </div>
     <div class="mb-xl">
@@ -633,11 +349,11 @@
       <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Pedidos esta Semana
     </h3>
-    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-semanal">
+    <div class="flex flex-wrap gap-2 mb-3 px-1" id="chips-saldo-semanal">
         <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-semanal-todos">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-semanal-deudores">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="al-dia">Al día <span class="chip-count" id="count-semanal-al-dia">0</span></button>
-        <input class="w-full max-w-[200px] rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-semanal-nombre" placeholder="Buscar por nombre..." type="search">
+        <input class="flex-1 min-w-[10rem] rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-semanal-nombre" placeholder="Buscar por nombre..." type="search">
     </div>
     <div class="hidden" id="resumen-semanal"></div>
     <div class="grid grid-cols-1 gap-3" id="lista-pedidos-semanales"></div>
@@ -663,7 +379,7 @@
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Foto de INE</label>
     <input accept="image/*" class="hidden" id="input-foto-ine" type="file">
     <div class="dropzone w-full h-32 flex flex-col items-center justify-center cursor-pointer group" data-default-label="Subir Identificacion" id="dropzone-ine">
-    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[32px] mb-sm" style="color: #66D0F0;" data-icon="badge">badge</span>
+    <span class="material-symbols-outlined group-hover:text-primary transition-colors text-[2rem] mb-sm" style="color: #66D0F0;" data-icon="badge">badge</span>
     <span class="font-label-md text-label-md group-hover:text-primary transition-colors" style="color: #9CA3AF;">Subir Identificacion</span>
     </div>
     <div class="preview-grid hidden" id="preview-ine"></div>
@@ -671,19 +387,19 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
     <div class="sm:col-span-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Nombre Completo</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-nombre" required type="text">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="altas-nombre" required type="text">
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Telefono</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-telefono" type="tel">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="altas-telefono" type="tel">
     </div>
     <div>
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Correo</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all" id="altas-correo" type="email">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="altas-correo" type="email">
     </div>
     <div class="sm:col-span-2">
     <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider">Recomendado por</label>
-    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="altas-recomendador" placeholder="Opcional" type="text">
+    <input class="form-input w-full rounded-xl bg-white px-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="altas-recomendador" placeholder="Opcional" type="text">
     </div>
     </div>
     <button class="w-full mt-4 h-12 btn-gradient text-white rounded-full font-button text-button flex items-center justify-center gap-sm transition-all" id="btn-guardar-asociado" type="submit">
@@ -698,44 +414,44 @@
       <span class="w-1 h-4 rounded-full" style="background: #00B2E3;"></span>
       Historial de Altas
     </h3>
-    <div class="flex gap-2 mb-3 px-1 overflow-x-auto" id="chips-saldo-altas">
+    <div class="flex flex-wrap gap-2 mb-3 px-1" id="chips-saldo-altas">
         <button type="button" class="chip-filtro active" data-filtro="todos">Todos <span class="chip-count" id="count-altas-todos">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="deudores">Deudores <span class="chip-count" id="count-altas-deudores">0</span></button>
         <button type="button" class="chip-filtro" data-filtro="al-dia">Al dia <span class="chip-count" id="count-altas-al-dia">0</span></button>
     </div>
     <div class="rounded-xl p-3 mb-3 border border-outline-variant/20 grid grid-cols-1 sm:grid-cols-3 gap-2" style="background: #fff;">
-    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-altas-nombre" placeholder="Buscar por nombre..." type="search">
-    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[15px] text-on-surface focus:outline-none transition-all" id="filtro-altas-fecha" type="date">
-    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[13px] hover:bg-surface-container-high transition-colors" id="filtro-altas-limpiar">Limpiar filtros</button>
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[0.9375rem] text-on-surface focus:outline-none transition-all placeholder:text-outline" id="filtro-altas-nombre" placeholder="Buscar por nombre..." type="search">
+    <input class="w-full rounded-xl border border-outline-variant/50 bg-white px-4 py-2.5 text-[0.9375rem] text-on-surface focus:outline-none transition-all" id="filtro-altas-fecha" type="date">
+    <button type="button" class="h-10 rounded-xl border border-outline-variant bg-white text-on-surface-variant font-semibold text-[0.8125rem] hover:bg-surface-container-high transition-colors" id="filtro-altas-limpiar">Limpiar filtros</button>
     </div>
     <div class="grid grid-cols-1 gap-3" id="historial-altas"></div>
     </div>
     </section>
     </main>
     <!-- BottomNavBar (Mobile Only) -->
-    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-[68px] px-margin-mobile pb-safe md:hidden z-50" style="background: #FFFFFF; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); border-top: 1px solid #E5E7EB;">
+    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center h-[4.25rem] px-margin-mobile pb-safe md:hidden z-50" style="background: #FFFFFF; box-shadow: 0 -2px 12px rgba(0,0,0,0.06); border-top: 1px solid #E5E7EB;">
     <button type="button" class="bottom-nav-item flex flex-col items-center justify-center rounded-2xl px-6 py-2 transition-all active:scale-90" style="background: linear-gradient(135deg, #00B2E3, #002855); color: white; min-width: 100px;" data-target="vista-clientes">
     <span class="material-symbols-outlined text-xl mb-0.5">account_balance</span>
-                <span class="text-[11px] font-bold">Clientes</span>
+                <span class="text-[0.75rem] font-bold">Clientes</span>
             </button>
     <button type="button" class="bottom-nav-item flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-high transition-all active:scale-90 rounded-2xl" data-target="vista-pedidos" style="min-width: 100px;">
     <span class="material-symbols-outlined text-xl mb-0.5">shopping_cart</span>
-                <span class="text-[11px] font-semibold">Pedidos</span>
+                <span class="text-[0.75rem] font-semibold">Pedidos</span>
             </button>
     <button type="button" class="bottom-nav-item flex flex-col items-center justify-center text-on-surface-variant px-6 py-2 hover:bg-surface-container-high transition-all active:scale-90 rounded-2xl" data-target="vista-altas" style="min-width: 100px;">
     <span class="material-symbols-outlined text-xl mb-0.5">person_add</span>
-                <span class="text-[11px] font-semibold">Asociados</span>
+                <span class="text-[0.75rem] font-semibold">Asociados</span>
             </button>
     </nav>
     <div class="hidden fixed left-4 right-4 z-[90] rounded-2xl p-4 shadow-lg border border-outline-variant/20 md:hidden" id="ios-install-banner" style="bottom: calc(76px + env(safe-area-inset-bottom)); background: #FFFFFF;">
     <div class="flex gap-3 items-start">
     <span class="material-symbols-outlined shrink-0" style="color: #00B2E3;">install_mobile</span>
     <div class="flex-1 min-w-0">
-    <p class="font-semibold text-on-surface text-[14px]">Instalar en tu iPhone</p>
-    <p class="text-[12px] text-on-surface-variant mt-1">Toca <strong>Compartir</strong> abajo en Safari y elige <strong>Agregar a inicio</strong>.</p>
+    <p class="font-semibold text-on-surface text-[0.875rem]">Instalar en tu iPhone</p>
+    <p class="text-[0.75rem] text-on-surface-variant mt-1">Toca <strong>Compartir</strong> abajo en Safari y elige <strong>Agregar a inicio</strong>.</p>
     </div>
     <button type="button" class="shrink-0 text-on-surface-variant p-1" id="ios-install-dismiss" aria-label="Cerrar">
-    <span class="material-symbols-outlined text-[20px]">close</span>
+    <span class="material-symbols-outlined text-[1.25rem]">close</span>
     </button>
     </div>
     </div>
@@ -783,16 +499,16 @@
         <div class="flex flex-col gap-2 p-4 border-t border-outline-variant/20 sticky bottom-0 bg-white pb-safe sm:pb-4">
           <div class="flex gap-2">
             <button type="button" class="flex-1 h-11 rounded-full border border-outline-variant bg-white text-on-surface-variant text-xs font-semibold flex items-center justify-center gap-1 hover:bg-gray-50" id="modal-compartir-btn-copiar">
-              <span class="material-symbols-outlined text-[16px]">content_copy</span> Copiar texto
+              <span class="material-symbols-outlined text-[1rem]">content_copy</span> Copiar texto
             </button>
             <button type="button" class="flex-1 h-11 rounded-full border border-outline-variant bg-white text-on-surface-variant text-xs font-semibold flex items-center justify-center gap-1 hover:bg-gray-50 hidden" id="modal-compartir-btn-descargar">
-              <span class="material-symbols-outlined text-[16px]">download</span> Descargar collage
+              <span class="material-symbols-outlined text-[1rem]">download</span> Descargar collage
             </button>
           </div>
           <div class="flex gap-2">
             <button type="button" class="flex-1 h-12 rounded-full border border-outline-variant bg-white text-on-surface-variant font-button text-sm" id="modal-compartir-cancelar">Cerrar</button>
             <button type="button" class="flex-1 h-12 bg-[#00A859] hover:bg-[#00964f] text-white rounded-full font-button text-sm font-bold flex items-center justify-center gap-1 shadow-md active:scale-95 transition-all" id="modal-compartir-btn-share">
-              <span class="material-symbols-outlined text-[18px]">share</span> Compartir WhatsApp
+              <span class="material-symbols-outlined text-[1.125rem]">share</span> Compartir WhatsApp
             </button>
           </div>
         </div>
@@ -807,18 +523,18 @@
             <h3 class="font-headline-md text-headline-md text-on-surface">Meta de Cobranza</h3>
           </div>
           <button type="button" class="p-1.5 rounded-full hover:bg-gray-100 text-on-surface-variant transition-colors" id="modal-meta-cerrar">
-            <span class="material-symbols-outlined text-[20px]">close</span>
+            <span class="material-symbols-outlined text-[1.25rem]">close</span>
           </button>
         </div>
         <p class="text-xs text-outline mb-2">Meta semanal de cobro (viernes a jueves):</p>
         <div class="relative mb-3">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">attach_money</span>
-          <input type="number" step="100" min="1" id="input-meta-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[15px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">attach_money</span>
+          <input type="number" step="100" min="1" id="input-meta-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[0.9375rem] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
         </div>
         <p class="text-xs text-outline mb-2">Referencia de deuda alta para ranking ($):</p>
         <div class="relative mb-4">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">priority_high</span>
-          <input type="number" step="100" min="1" id="input-deuda-ref-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[15px] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">priority_high</span>
+          <input type="number" step="100" min="1" id="input-deuda-ref-monto" class="form-input w-full rounded-xl bg-gray-50 border border-gray-200 pl-10 pr-4 py-2.5 text-[0.9375rem] font-bold text-on-surface focus:outline-none focus:bg-white" placeholder="Ej. 5000">
         </div>
         <div class="flex gap-2">
           <button type="button" class="flex-1 h-11 rounded-full border border-outline-variant bg-white text-on-surface-variant font-semibold text-xs" id="modal-meta-cancelar">Cancelar</button>
@@ -832,7 +548,7 @@
       <div class="w-full max-w-sm bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-outline-variant/20 flex flex-col items-center text-center">
         <!-- Logo / Icono -->
         <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 text-white shadow-lg" style="background: linear-gradient(135deg, #00B2E3, #002855); box-shadow: 0 4px 16px rgba(0, 178, 227, 0.35);">
-          <span class="material-symbols-outlined text-[32px]">admin_panel_settings</span>
+          <span class="material-symbols-outlined text-[2rem]">admin_panel_settings</span>
         </div>
         
         <h2 class="text-2xl font-black text-on-surface tracking-tight mb-1">BetterMancera</h2>
@@ -843,32 +559,32 @@
           <div>
             <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider" for="login-email">Correo electrónico</label>
             <div class="relative">
-              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">mail</span>
-              <input class="form-input w-full rounded-2xl bg-gray-50 border border-gray-200 pl-11 pr-4 py-3 text-[15px] text-on-surface focus:outline-none focus:bg-white transition-all placeholder:text-outline" id="login-email" type="email" placeholder="admin@correo.com" autocomplete="email" required>
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">mail</span>
+              <input class="form-input w-full rounded-2xl bg-gray-50 border border-gray-200 pl-11 pr-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none focus:bg-white transition-all placeholder:text-outline" id="login-email" type="email" placeholder="admin@correo.com" autocomplete="email" required>
             </div>
           </div>
 
           <div>
             <label class="block text-xs font-bold text-on-surface-variant mb-1.5 uppercase tracking-wider" for="login-password">Contraseña</label>
             <div class="relative">
-              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[20px]">lock</span>
-              <input class="form-input w-full rounded-2xl bg-gray-50 border border-gray-200 pl-11 pr-4 py-3 text-[15px] text-on-surface focus:outline-none focus:bg-white transition-all placeholder:text-outline" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-outline material-symbols-outlined text-[1.25rem]">lock</span>
+              <input class="form-input w-full rounded-2xl bg-gray-50 border border-gray-200 pl-11 pr-4 py-3 text-[0.9375rem] text-on-surface focus:outline-none focus:bg-white transition-all placeholder:text-outline" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" required>
             </div>
           </div>
 
           <!-- Mensaje de Error en Español / Reintento -->
           <div class="hidden p-3.5 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-700 flex flex-col gap-2 text-left" id="login-error">
             <div class="flex items-start gap-2">
-              <span class="material-symbols-outlined text-[18px] shrink-0 text-red-600">error</span>
+              <span class="material-symbols-outlined text-[1.125rem] shrink-0 text-red-600">error</span>
               <span id="login-error-texto" class="flex-1">Credenciales incorrectas.</span>
             </div>
-            <button type="button" class="hidden self-end px-3 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg font-bold text-[11px] transition-colors" id="btn-login-reintentar">
+            <button type="button" class="hidden self-end px-3 py-1 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg font-bold text-[0.75rem] transition-colors" id="btn-login-reintentar">
               Reintentar conexión
             </button>
           </div>
 
           <button type="submit" class="w-full h-12 rounded-full font-button text-sm font-bold text-white btn-gradient shadow-md active:scale-98 transition-all flex items-center justify-center gap-2 mt-2" id="btn-login-submit">
-            <span class="material-symbols-outlined text-[20px]">login</span>
+            <span class="material-symbols-outlined text-[1.25rem]">login</span>
             <span>Entrar al panel</span>
           </button>
         </form>
@@ -877,6 +593,7 @@
 
     <script src="config.js"></script>
     <script src="vendor/chart.umd.min.js" defer></script>
+    <script src="offline.js" defer></script>
     <script src="app.js" defer></script>
     <script src="register-sw.js"></script>
     </body></html>

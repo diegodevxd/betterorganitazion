@@ -1,5 +1,6 @@
 {
   "framework": null,
+  "installCommand": "echo 'sin dependencias en produccion: styles.css y vendor/ ya estan en el repo'",
   "buildCommand": "npm run build",
   "outputDirectory": "."
 }

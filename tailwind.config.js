@@ -1,4 +1,6 @@
-tailwind.config = {
+/** Configuración de Tailwind para el build estático (npm run build:css). */
+module.exports = {
+  content: ["./index.html", "./app.js"],
   darkMode: "class",
   theme: {
     extend: {
@@ -55,18 +57,18 @@ tailwind.config = {
         "DEFAULT": "0.25rem",
         "lg": "0.5rem",
         "xl": "0.75rem",
-        "full": "9999px"
+        "full": "624.9375rem"
       },
       "spacing": {
-        "margin-desktop": "48px",
-        "xs": "4px",
-        "margin-mobile": "16px",
-        "lg": "24px",
-        "sm": "8px",
-        "base": "4px",
-        "xl": "32px",
-        "md": "16px",
-        "gutter": "16px"
+        "margin-desktop": "3rem",
+        "xs": "0.25rem",
+        "margin-mobile": "1rem",
+        "lg": "1.5rem",
+        "sm": "0.5rem",
+        "base": "0.25rem",
+        "xl": "2rem",
+        "md": "1rem",
+        "gutter": "1rem"
       },
       "fontFamily": {
         "headline-lg-mobile": ["Hanken Grotesk"],
@@ -78,14 +80,15 @@ tailwind.config = {
         "body-md": ["Hanken Grotesk"]
       },
       "fontSize": {
-        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "700" }],
-        "headline-lg": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-        "headline-md": ["22px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
-        "button": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
-        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
-        "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600" }],
-        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+        "headline-lg-mobile": ["1.5rem", { "lineHeight": "2rem", "fontWeight": "700" }],
+        "headline-lg": ["1.75rem", { "lineHeight": "2.25rem", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+        "headline-md": ["1.375rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+        "button": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "600" }],
+        "body-lg": ["1.125rem", { "lineHeight": "1.75rem", "fontWeight": "400" }],
+        "label-md": ["0.875rem", { "lineHeight": "1.25rem", "letterSpacing": "0.05em", "fontWeight": "600" }],
+        "body-md": ["1rem", { "lineHeight": "1.5rem", "fontWeight": "400" }]
       }
     }
-  }
-}
+  },
+  plugins: [require("@tailwindcss/forms")],
+};
